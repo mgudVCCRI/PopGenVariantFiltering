@@ -1,0 +1,765 @@
+from snakemake.remote.GS import RemoteProvider
+
+GS = RemoteProvider()
+
+colors2 = ["#999899", "#B11116"]
+colors3 = ["#F04B5D", "#B11116", "#999899"]
+reds = ["#B11116", "#EF4640", "#F04B5D"]  # TODO: fix, too similar
+greys = ["#56565A", "#999899", "#BDBBBB", "#D8D1CA", "#CDC3BB"]
+
+threshold_filters = [
+    "meets_sift_auth",
+    "meets_polyphen_auth",
+    "meets_sift_95sens",
+    "meets_polyphen_95sens",
+    "meets_all_95sens",
+    "meets_all_auth",
+]
+
+# NOTE: list of metrics for which to generate "CAPS by ..."
+# decile/percentile/etc.
+# TODO: as of [2023-04-26], you need to select one metric only (and
+# comment out the rest) and run the pipeline just for that metric
+metrics_set = [
+    "REVEL_score_decile",
+    "SIFT_score_decile",
+    "Polyphen2_HDIV_score_decile",
+    "Polyphen2_HVAR_score_decile",
+    "MutationTaster_score_decile",
+    "MutationAssessor_score_decile",
+    "FATHMM_score_decile",
+    "PROVEAN_score_decile",
+    "VEST4_score_decile",
+    "MetaSVM_score_decile",
+    "MetaLR_score_decile",
+    "MutPred_score_decile",
+    "MVP_score_decile",
+    "MPC_score_decile",
+    "PrimateAI_score_decile",
+    "DEOGEN2_score_decile",
+    "CADD_phred_decile",
+    "DANN_score_decile",
+]
+
+calculate_caps = "calculate_caps.R"
+calculate_maps = "calculate_maps.R"
+viz_by_thresholds = "viz_by_thresholds.R"
+viz_scores = "viz_scores.R"
+viz_scores_multi = "viz_scores_multi.R"
+get_clinvar_stats = "clinvar_stats.R"
+filtering = "filtering.R"
+
+# All variants grouped by their most severe consequence
+by_csq = "by_csq.tsv"
+by_csq_unprocessed = GS.remote(config["gcp_rootdir"] + "by_csq.tsv")
+
+# Synonymous variants grouped by context/mutability (exomes)
+syn_by_context = "syn_by_context.tsv"
+
+# TODO: you may not need this at all! If you do, make everything reproducible, like in CAPS paper
+# Model #######################################################################
+# Synonymous variants with 4 missing contexts added
+syn_by_context_p4 = "../../CAPS/model/phat.tsv"
+syn_by_context_pdd = "../../CAPS/model/phat_sim.tsv"
+# Synonymous variants with 4 missing contexts added (genomes)
+syn_by_context_p4_genomes = "../../CAPS/model/phat_genomes.tsv"
+syn_by_context_pdd_genomes = "../../CAPS/model/phat_sim_genomes.tsv"
+
+# ClinVar #####################################################################
+# All SNVs annotated with ClinVar
+all_clinvar_unprocessed = GS.remote(config["gcp_rootdir"] + "all_clinvar.tsv")
+all_clinvar = "all_clinvar.tsv"
+clinvar_hc = "clinvar_hc.tsv"  # High confidence set
+# CAPS scores for all SNVs annotated with ClinVar
+caps_clinvar_scores = "all_clinvar_caps.tsv"
+caps_clinvar_hc_scores = "clinvar_hc_caps.tsv"
+caps_clinvar_hc_alt_scores = "clinvar_hc_alt_caps.tsv"
+# All variants annotated with ClinVar (MAPS score)
+maps_clinvar_scores = "all_clinvar_maps.tsv"
+maps_clinvar_hc_scores = "clinvar_hc_maps.tsv"
+# All variants annotated with ClinVar (MAPS score with alternate reference)
+maps_clinvar_alt_scores = "all_clinvar_alt_maps.tsv"
+maps_clinvar_hc_alt_scores = "clinvar_hc_alt_maps.tsv"
+# Per-group statistics for ClinVar
+clinvar_stats = "all_clinvar_stats.tex"
+clinvar_hc_stats = "clinvar_hc_stats.tex"
+# CAPS and MAPS scores for SNVs annotated with ClinVar
+scores2_clinvar_plot = "all_clinvar_scores2.pdf"
+scores2_clinvar_hc_plot = "clinvar_hc_scores2.pdf"
+scores2_clinvar_hc_alt_plot = "clinvar_hc_alt_scores2.pdf"
+# MAPS scores for SNVs annotated with ClinVar (alternate reference)
+clinvar_maps_alt_plot = "clinvar_maps_alt_plot.pdf"
+clinvar_hc_maps_alt_plot = "clinvar_hc_maps_alt_plot.pdf"
+all_clinvar_benign = "all_clinvar_benign.tsv"
+clinvar_hc_benign = "clinvar_hc_benign.tsv"
+# Missense variants that satisfy and don't satisfy some of the common
+# deleteriousness thresholds
+missense_by_thresholds_unprocessed = GS.remote(
+    config["gcp_rootdir"] + "missense_by_thresholds.tsv"
+)
+# CAPS scores for groups of missense variants that satisfy and don't
+# satisfy some of the common deleteriousness thresholds
+missense_by_thresholds_plot = "missense_by_thresholds_caps.pdf"
+# Annotations #################################################################
+# Missense variants that satisfy and don't satisfy some of the common
+# deleteriousness thresholds
+missense_by_thresholds = "missense_by_thresholds.tsv"
+# All variants annotated with all metrics (dbNSFP)
+# all_metrics = GS.remote(config["gcp_rootdir"] + "all_dbnsfp.tsv")
+all_metrics = "all_dbnsfp.tsv"  # TODO: replace with remote
+# All variants annotated with CADD
+all_cadd = GS.remote(config["gcp_rootdir"] + "all_cadd.tsv")
+# All variants annotated with DANN
+all_dann = GS.remote(config["gcp_rootdir"] + "all_dann.tsv")
+# CAPS scores for groups of missense variants that satisfy and don't
+# satisfy some of the common deleteriousness thresholds
+missense_by_thresholds_scores = "missense_by_thresholds_caps.tsv"
+# CAPS scores for each group of CADD
+all_cadd_caps_scores = "all_cadd_caps.tsv"
+# CAPS scores for each group of DANN
+all_dann_caps_scores = "all_dann_caps.tsv"
+# Plot of CAPS scores for each group of CADD
+all_cadd_caps_plot = "all_cadd_caps.pdf"
+# Plot of CAPS scores for each group of DANN
+all_dann_caps_plot = "all_dann_caps.pdf"
+
+
+rule all:
+    input:
+        #     # Comparison with other metrics
+        missense_by_thresholds_plot,
+        # missense_by_thresholds_scores,
+        #     all_cadd_caps_plot,
+        #     all_dann_caps_plot,
+        #     expand(
+        #         "decile_{metric}_CAPS.pdf",
+        #         metric=metrics_set,
+        #     ),
+        #     clinvar_stats,
+        #     clinvar_hc_stats,
+        #     clinvar_hc_maps_alt_plot,
+        #     scores2_clinvar_hc_plot,
+        #     scores2_clinvar_hc_alt_plot,
+
+
+###############################################################################
+
+
+rule process_by_csq_variants:
+    input:
+        In=by_csq_unprocessed,
+    output:
+        Out=by_csq,
+    params:
+        min_coverage=30,
+        protein_coding=True,
+        add_essential_splice_cat=True,
+    script:
+        filtering
+
+
+rule syn_by_context:
+    input:
+        In=by_csq,
+    output:
+        Out=syn_by_context,
+    params:
+        variable="worst_csq",
+        variable_value="synonymous_variant",
+    script:
+        filtering
+
+
+for threshold_filter in threshold_filters:
+
+    rule missense_by_thresholds_scores:
+        name:
+            "missense_by_thresholds_{threshold_filter}"
+        input:
+            variants=missense_by_thresholds,
+            exp_variants=syn_by_context_p4,
+        output:
+            scores="{threshold_filter}.tsv",
+        params:
+            phat_method="Var",
+            confint_method="CAPS",
+            variable="{threshold_filter}",
+        script:
+            calculate_caps
+
+
+rule missense_by_thresholds_processing:
+    input:
+        scores=expand("{threshold_filter}.tsv", threshold_filter=threshold_filters),
+    output:
+        joined_scores=missense_by_thresholds_scores,
+    script:
+        "process_missense_by_thresholds.R"
+
+
+rule viz_by_thresholds:
+    input:
+        scores=missense_by_thresholds_scores,
+    params:
+        # TODO: change color to a different palette?
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+        # TODO: make this value reproducible!
+        gnomAD_missense_level=0.0396,
+        xlab="",
+        aspect_ratio=0.4,
+        point_size=1,
+        text_size=18,
+        xlab_hjust=0.5,
+        xlab_vjust=0,
+        colors=[colors3, "black"],
+        source_labels_set=["95sens", "auth"],
+        source_labels=["95sens", "auth"],
+        new_source_labels=[
+            '"95% sensitivity" thresholds\n(less stringent)',
+            '"Default" thresholds\n(more stringent)',
+        ],
+        method_labels_set=["sift", "polyphen", "all"],
+        method_labels=["sift", "polyphen", "all"],
+        new_method_labels=[
+            "SIFT",
+            "PolyPhen",
+            "All",
+        ],
+    output:
+        plot=missense_by_thresholds_plot,
+    script:
+        viz_by_thresholds
+
+
+rule missense_by_thresholds_preprocessing:
+    input:
+        unprocessed=missense_by_thresholds_unprocessed,
+    output:
+        processed=missense_by_thresholds,
+    script:
+        "missense_by_thresholds_preprocessing.R"
+
+
+# Calculate CAPS for each DANN group
+rule all_dann_caps_scores:
+    input:
+        variants=all_dann,
+        exp_variants=syn_by_context_p4,
+    params:
+        phat_method="Var",
+        confint_method="CAPS",
+        variable="dann_decile",
+    output:
+        scores=all_dann_caps_scores,
+    script:
+        calculate_caps
+
+
+# Calculate CAPS for each CADD group
+rule all_cadd_caps_scores:
+    input:
+        variants=all_cadd,
+        exp_variants=syn_by_context_p4,
+    params:
+        phat_method="Var",
+        confint_method="CAPS",
+        variable="cadd_decile",
+    output:
+        scores=all_cadd_caps_scores,
+    script:
+        calculate_caps
+
+
+# TODO: you many not need this after all if you use "metrics_set"
+rule all_cadd_caps_plot:
+    input:
+        scores=all_cadd_caps_scores,
+    output:
+        plot=all_cadd_caps_plot,
+    params:
+        aspect_ratio=0.5,
+        xlab="CADD decile",
+        xlab_angle=45,
+        xlab_vjust=1,
+        xlab_hjust=1,
+        reorder_xlab_by_score=False,
+        xlab_labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        new_xlab_labels=[
+            "10%",
+            "20%",
+            "30%",
+            "40%",
+            "50%",
+            "60%",
+            "70%",
+            "80%",
+            "90%",
+            "100%",
+        ],
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+    script:
+        viz_scores
+
+
+# TODO: you many not need this after all if you use "metrics_set"
+rule all_dann_caps_plot:
+    input:
+        scores=all_dann_caps_scores,
+    output:
+        plot=all_dann_caps_plot,
+    params:
+        aspect_ratio=0.5,
+        xlab="DANN decile",
+        xlab_angle=45,
+        xlab_vjust=1,
+        xlab_hjust=1,
+        reorder_xlab_by_score=False,
+        xlab_labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        new_xlab_labels=[
+            "10%",
+            "20%",
+            "30%",
+            "40%",
+            "50%",
+            "60%",
+            "70%",
+            "80%",
+            "90%",
+            "100%",
+        ],
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+    script:
+        viz_scores
+
+
+# TODO: finish
+rule all_metrics_caps_scores:
+    input:
+        variants=all_metrics,
+        exp_variants=syn_by_context_p4,
+    params:
+        phat_method="Var",
+        confint_method="CAPS",
+        variable=expand(
+            "{metric}",
+            metric=metrics_set,
+        ),
+    output:
+        scores=expand(
+            "decile_{metric}_CAPS.tsv",
+            metric=metrics_set,
+        ),
+    script:
+        calculate_caps
+
+
+# TODO: finish
+rule all_metrics_caps_plot:
+    input:
+        scores="decile_{metric}_CAPS.tsv",
+    output:
+        plot="decile_{metric}_CAPS.pdf",
+    params:
+        aspect_ratio=0.2,
+        xlab=expand(
+            "{metric}",
+            metric=metrics_set,
+        ),
+        xlab_angle=45,
+        xlab_vjust=1,
+        xlab_hjust=1,
+        reorder_xlab_by_score=False,
+        xlab_labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+        new_xlab_labels=[
+            "10%",
+            "20%",
+            "30%",
+            "40%",
+            "50%",
+            "60%",
+            "70%",
+            "80%",
+            "90%",
+            "100%",
+        ],
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+    script:
+        viz_scores
+
+
+rule process_clinvar_variants:
+    input:
+        In=all_clinvar_unprocessed,
+    output:
+        Out=all_clinvar,
+    params:
+        min_coverage=30,
+        protein_coding=True,
+        variable="OriginSimple",
+        variable_value="germline",
+    script:
+        filtering
+
+
+rule clinvar_hc:
+    input:
+        In=all_clinvar,
+    output:
+        Out=clinvar_hc,
+    params:
+        variable="ReviewStatus",
+        variable_value="criteria provided, multiple submitters, no conflicts",
+    script:
+        filtering
+
+
+rule clinvar_stats:
+    input:
+        In=all_clinvar,
+    output:
+        Out=clinvar_stats,
+    params:
+        # Only include ClinVar-annotated variants
+        NA_omit=True,
+        caption="Per-group statistics for all filtered ClinVar-annotated germline variants.",
+        variable="ClinicalSignificance",
+        labels_set=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        new_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+    script:
+        get_clinvar_stats
+
+
+rule clinvar_hc_stats:
+    input:
+        In=clinvar_hc,
+    output:
+        Out=clinvar_hc_stats,
+    params:
+        # Only include ClinVar-annotated variants
+        NA_omit=True,
+        caption="Per-group statistics for filtered ClinVar-annotated germline variants with at least two independent submitters and no conflicting interpretations.",
+        variable="ClinicalSignificance",
+        labels_set=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        new_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+    script:
+        get_clinvar_stats
+
+
+rule get_all_clinvar_benign:
+    input:
+        In=all_clinvar,
+    output:
+        Out=all_clinvar_benign,
+    params:
+        variable="ClinicalSignificance",
+        variable_value="Benign",
+    script:
+        filtering
+
+
+rule get_clinvar_hc_benign:
+    input:
+        In=clinvar_hc,
+    output:
+        Out=clinvar_hc_benign,
+    params:
+        variable="ClinicalSignificance",
+        variable_value="Benign",
+    script:
+        filtering
+
+
+rule scores2_clinvar_hc_plot:
+    input:
+        scores=[caps_clinvar_hc_scores, maps_clinvar_hc_scores],
+    params:
+        xlab_labels_set=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        model_labels=["maps", "caps"],
+        new_model_labels=["MAPS", "CAPS"],
+        colors=colors2,
+        xlab="",
+        ylab="Selection score",
+        aspect_ratio=0.3,
+        text_size=18,
+        xlab_size=18,
+        point_size=1,
+        xlab_angle=23,
+        xlab_hjust=1,
+        xlab_vjust=1,
+        legend_title="",
+    output:
+        plot=scores2_clinvar_hc_plot,
+    script:
+        viz_scores_multi
+
+
+rule scores2_clinvar_hc_alt_plot:
+    input:
+        scores=[caps_clinvar_hc_alt_scores, maps_clinvar_hc_alt_scores],
+    params:
+        xlab_labels_set=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        model_labels=["maps", "caps"],
+        new_model_labels=["MAPS", "CAPS"],
+        colors=colors2,
+        xlab="",
+        ylab="Selection score",
+        xlab_angle=45,
+        xlab_hjust=1,
+        xlab_vjust=1,
+        legend_title="",
+        point_size=1,
+    output:
+        plot=scores2_clinvar_hc_alt_plot,
+    script:
+        viz_scores_multi
+
+
+rule clinvar_maps_alt_plot:
+    input:
+        scores=maps_clinvar_alt_scores,
+    output:
+        plot=clinvar_maps_alt_plot,
+    params:
+        aspect_ratio=0.5,
+        xlab_angle=45,
+        NA_omit=True,
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        xlab_vjust=1,
+        xlab_hjust=1,
+        reorder_xlab_by_score=False,
+        score_name="maps",
+        lconf="maps_lconf",
+        uconf="maps_uconf",
+    script:
+        viz_scores
+
+
+rule clinvar_hc_maps_alt_plot:
+    input:
+        scores=maps_clinvar_hc_alt_scores,
+    output:
+        plot=clinvar_hc_maps_alt_plot,
+    params:
+        aspect_ratio=0.5,
+        xlab_angle=45,
+        NA_omit=True,
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Pathogenic/Likely pathogenic",
+            "Likely pathogenic",
+            "Pathogenic",
+        ],
+        xlab_vjust=1,
+        xlab_hjust=1,
+        reorder_xlab_by_score=False,
+        score_name="maps",
+        lconf="maps_lconf",
+        uconf="maps_uconf",
+    script:
+        viz_scores
+
+
+rule maps_clinvar_hc_scores:
+    input:
+        variants=clinvar_hc,
+        calibrate_on=syn_by_context,
+    params:
+        extra="ClinicalSignificance",
+        transformation="+",
+    output:
+        scores=maps_clinvar_hc_scores,
+    script:
+        calculate_maps
+
+
+rule maps_clinvar_alt_scores:
+    input:
+        variants=all_clinvar,
+        calibrate_on=all_clinvar_benign,
+    params:
+        extra="ClinicalSignificance",
+        transformation="+",
+    output:
+        scores=maps_clinvar_alt_scores,
+    script:
+        calculate_maps
+
+
+rule maps_clinvar_hc_alt_scores:
+    input:
+        variants=clinvar_hc,
+        calibrate_on=clinvar_hc_benign,
+    params:
+        extra="ClinicalSignificance",
+        transformation="+",
+    output:
+        scores=maps_clinvar_hc_alt_scores,
+    script:
+        calculate_maps
+
+
+rule caps_clinvar_hc_scores:
+    input:
+        variants=clinvar_hc,
+        exp_variants=syn_by_context_p4,
+    params:
+        phat_method="Var",
+        confint_method="CAPS",
+        variable="ClinicalSignificance",
+    output:
+        scores=caps_clinvar_hc_scores,
+    script:
+        calculate_caps
+
+
+rule caps_clinvar_hc_alt_scores:
+    input:
+        variants=clinvar_hc,
+        exp_variants=clinvar_hc_benign,
+    params:
+        phat_method="Var",
+        confint_method="CAPS",
+        variable="ClinicalSignificance",
+    output:
+        scores=caps_clinvar_hc_alt_scores,
+    script:
+        calculate_caps

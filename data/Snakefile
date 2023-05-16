@@ -1,0 +1,904 @@
+from snakemake.remote.GS import RemoteProvider
+
+GS = RemoteProvider(stay_on_remote=True)
+
+# TODO: add a rule for "by_csq" variants
+
+###############################################################################
+#                                  Main files                                 #
+###############################################################################
+
+# All QC-compliant variants annotated with ClinVar
+all_clinvar = GS.remote(config["gcp_rootdir"] + "all_clinvar.tsv")
+all_clinvar_w_AF_AC = GS.remote(config["gcp_rootdir"] + "all_clinvar_w_AF_AC.tsv")
+all_clinvar_genomes = GS.remote(config["gcp_rootdir"] + "all_clinvar_genomes.tsv")
+# QC-compliant missense variants annotated with deciles of main pathogenicity metrics
+missense_dbnsfp_deciles = GS.remote(
+    config["gcp_rootdir"] + "missense_dbnsfp_deciles.tsv"
+)
+# QC-compliant missense variants annotated with pathogenicity scores from dbNSFP
+missense_dbnsfp = GS.remote(config["gcp_rootdir"] + "missense_dbnsfp.tsv.bgz")
+# QC-compliant missense variants annotated with pathogenicity scores from dbNSFP with processed scores
+missense_dbnsfp_parsed = GS.remote(
+    config["gcp_rootdir"] + "missense_dbnsfp_parsed.tsv.bgz"
+)
+# QC-compliant missense variants, annotated with information about
+# whether their deleteriousness scores are above or below certain
+# thresholds
+missense_by_thresholds = GS.remote(config["gcp_rootdir"] + "missense_by_thresholds.tsv")
+
+
+rule all:
+    input:
+        # Variants annotated with pathogenicity metrics #######################
+        #      all_dbnsfp,
+        # Variants annotated according to a set of thresholds #################
+        missense_by_thresholds,
+        #      missense_dbnsfp,
+        #      missense_dbnsfp_parsed,
+        # Variants by ClinVar categories ######################################
+        #      all_clinvar,
+        #      all_clinvar_genomes,
+
+
+###############################################################################
+#                                   Metrics                                   #
+###############################################################################
+
+# dbNSFP annotations ##########################################################
+
+
+rule parse_dbnsfp_scores:
+    input:
+        missense_dbnsfp,
+    output:
+        missense_dbnsfp_parsed,
+    run:
+        import hail as hl
+
+        variants = hl.import_table(
+            input[0],
+            types={"locus": hl.tlocus(), "alleles": hl.tarray(hl.tstr)},
+            key=["locus", "alleles"],
+        )
+
+        # NOTE: Scores are represented as strings where actual values
+        # are separated by ";" (one value per Protein ID). For
+        # example, values can be: ".;0.1", ".;.", "1;1", "0.0;.",
+        # ".;.;.;.", etc. Only the maximum value is retained.
+        # TODO: check and finish
+
+        # TODO: the code below doesn't work
+        # SIFT_score=hl.if_else(
+        #     dbNSFP.SIFT_score.matches("^[\.;]+$"),
+        #     hl.missing("float64"),
+        #     hl.max([hl.float(x) for x in dbNSFP.SIFT_score.split(";") if x != "."]),
+        # ),
+
+        # TODO: the code below doesn't work
+        # my=hl.map(lambda x: x, dbNSFP.SIFT_score.split(";"))
+
+
+        # TODO: this doesn't catch all possible scenarios
+        # exomes = exomes.annotate(
+        #    SIFT_score=hl.case()
+        #    .when(
+        #        dbNSFP.SIFT_score.matches("^\.;-?[0-9]+\.?[0-9]*$"),
+        #        hl.float(dbNSFP.SIFT_score[2:]),
+        #    )
+        #    .when(
+        #        dbNSFP.SIFT_score.matches("^-?[0-9]+\.?[0-9]*$"),
+        #        hl.float(dbNSFP.SIFT_score),
+        #    )
+        #    .when(
+        #        dbNSFP.SIFT_score.matches("^-?[0-9]+\.?[0-9]*;\.$"),
+        #        hl.float(dbNSFP.SIFT_score[:-2]),
+        #    )
+        #    .when(dbNSFP.SIFT_score.matches("^1;1$"), 1.0)
+        #    .when(dbNSFP.SIFT_score.matches("^[\.;]+$"), hl.missing("float64"))
+        #    .or_error("Unexpected format"),
+
+
+        # define a function to parse the pathogenicity scores
+        def parse_scores(s):
+            # split the scores string into individual scores
+            scores = hl.str(s).split(";")
+            # convert each score to a float if possible, otherwise return missing
+            scores = hl.map(
+                lambda x: hl.if_else(
+                    ((x != ".") & (x != "-")), hl.float(x), hl.missing(hl.tfloat)
+                ),
+                scores,
+            )
+            # define a variable to hold the maximum score
+            max_score = hl.cond(
+                hl.all(lambda x: hl.is_missing(x), scores),
+                hl.null(hl.tfloat),
+                scores[0],
+            )
+            # loop over the scores and update the maximum score if necessary
+            max_score = hl.map(
+                lambda score: hl.if_else(
+                    hl.is_defined(score)
+                    & (hl.is_missing(max_score) | (score > max_score)),
+                    score,
+                    max_score,
+                ),
+                scores,
+            )
+            # return the maximum score, or missing if all scores are missing
+            return hl.if_else(
+                hl.is_missing(hl.max(max_score)), hl.null(hl.tfloat), hl.max(max_score)
+            )
+
+
+        variants = variants.annotate(
+            SIFT_score=parse_scores(variants.SIFT_score),
+            Polyphen2_HDIV_score=parse_scores(variants.Polyphen2_HDIV_score),
+            Polyphen2_HVAR_score=parse_scores(variants.Polyphen2_HVAR_score),
+            MutationTaster_score=parse_scores(variants.MutationTaster_score),
+            MutationAssessor_score=parse_scores(variants.MutationAssessor_score),
+            FATHMM_score=parse_scores(variants.FATHMM_score),
+            PROVEAN_score=parse_scores(variants.PROVEAN_score),
+            VEST4_score=parse_scores(variants.VEST4_score),
+            MutPred_score=parse_scores(variants.MutPred_score),
+            MVP_score=parse_scores(variants.MVP_score),
+            MPC_score=parse_scores(variants.MPC_score),
+            DEOGEN2_score=parse_scores(variants.DEOGEN2_score),
+            REVEL_score=parse_scores(variants.REVEL_score),
+            PrimateAI_score=parse_scores(variants.PrimateAI_score),
+            CADD_phred=parse_scores(variants.CADD_phred),
+            DANN_score=parse_scores(variants.DANN_score),
+            MetaSVM_score=parse_scores(variants.MetaSVM_score),
+            MetaLR_score=parse_scores(variants.MetaLR_score),
+        )
+        variants.export(output[0])
+
+
+rule missense_dbnsfp_deciles:
+    input:
+        missense_dbnsfp_parsed,
+    output:
+        missense_dbnsfp_deciles,
+    run:
+        import hail as hl
+        from annotate_deciles import annotate_deciles
+
+        missense_vars = hl.import_table(input[0])
+
+        missense_vars = annotate_deciles(missense_vars, "SIFT_score").rename(
+            {"variable_bin": "SIFT_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "Polyphen2_HDIV_score").rename(
+            {"variable_bin": "Polyphen2_HDIV_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "Polyphen2_HVAR_score").rename(
+            {"variable_bin": "Polyphen2_HVAR_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "MutationTaster_score").rename(
+            {"variable_bin": "MutationTaster_score_decile"}
+        )
+        missense_vars = annotate_deciles(
+            missense_vars, "MutationAssessor_score"
+        ).rename({"variable_bin": "MutationAssessor_score_decile"})
+        missense_vars = annotate_deciles(missense_vars, "FATHMM_score").rename(
+            {"variable_bin": "FATHMM_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "PROVEAN_score").rename(
+            {"variable_bin": "PROVEAN_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "VEST4_score").rename(
+            {"variable_bin": "VEST4_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "MetaSVM_score").rename(
+            {"variable_bin": "MetaSVM_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "MetaLR_score").rename(
+            {"variable_bin": "MetaLR_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "REVEL_score").rename(
+            {"variable_bin": "REVEL_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "MutPred_score").rename(
+            {"variable_bin": "MutPred_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "MVP_score").rename(
+            {"variable_bin": "MVP_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "MPC_score").rename(
+            {"variable_bin": "MPC_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "PrimateAI_score").rename(
+            {"variable_bin": "PrimateAI_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "DEOGEN2_score").rename(
+            {"variable_bin": "DEOGEN2_score_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "CADD_phred").rename(
+            {"variable_bin": "CADD_phred_decile"}
+        )
+        missense_vars = annotate_deciles(missense_vars, "DANN_score").rename(
+            {"variable_bin": "DANN_score_decile"}
+        )
+
+        missense_vars.group_by(
+            "context",
+            "ref",
+            "alt",
+            "methylation_level",
+            "mu",
+            "worst_csq",
+            "protein_coding",
+            "coverage",
+            "SIFT_score_decile",
+            "Polyphen2_HDIV_score_decile",
+            "Polyphen2_HVAR_score_decile",
+            "MutationTaster_score_decile",
+            "MutationAssessor_score_decile",
+            "FATHMM_score_decile",
+            "PROVEAN_score_decile",
+            "VEST4_score_decile",
+            "MetaSVM_score_decile",
+            "MetaLR_score_decile",
+            "REVEL_score_decile",
+            "MutPred_score_decile",
+            "MVP_score_decile",
+            "MPC_score_decile",
+            "PrimateAI_score_decile",
+            "DEOGEN2_score_decile",
+            "CADD_phred_decile",
+            "DANN_score_decile",
+        ).aggregate(
+            variant_count=hl.agg.count(),
+            singleton_count=hl.agg.count_where(missense_vars.AC == 1),
+        ).export(
+            output[0]
+        )
+
+
+###############################################################################
+
+
+rule missense_annotate_dbnsfp:
+    output:
+        missense_dbnsfp,
+    run:
+        import hail as hl
+        from preprocessing import preprocessing
+
+        variants = preprocessing(
+            config["exomes_ht_path"],
+            config["context_ht_path"],
+            config["mutation_rates_ht_path"],
+            config["coverage_exomes_ht_path"],
+            {"female": config["female_exomes"], "male": config["male_exomes"]},
+        )
+
+        missense_vars = variants.filter(
+            (variants.worst_csq == "missense_variant")
+            & (variants.protein_coding == True)
+            & (variants.coverage >= 30)
+        )
+
+        missense_vars = missense_vars.annotate(
+            transcript_consequences=missense_vars.vep.transcript_consequences.find(
+                lambda x: (x.consequence_terms == ["missense_variant"])
+                & (x.biotype == "protein_coding")
+            )
+        )
+
+        dbNSFP = hl.import_table(
+            config["dbNSFP_hg19_path"],
+            missing=".",
+            filter="^M",  # Filter out chromosome M (mitochondrial) entries, not in hg19
+            types={"Start": hl.tint32, "End": hl.tint32},
+        )
+        dbNSFP = dbNSFP.key_by(
+            locus=hl.locus(
+                dbNSFP["#Chr"],
+                dbNSFP.Start,
+                "GRCh37",
+            ),
+            alleles=[dbNSFP.Ref, dbNSFP.Alt],
+        )
+        # TODO: this is error-prone if the part above changes
+        try:
+            dbNSFP.write("dbNSFP.ht")
+        except:
+            pass
+        dbNSFP = hl.read_table("dbNSFP.ht")
+        dbNSFP = dbNSFP[missense_vars.key]
+        missense_vars = missense_vars.annotate(
+            SIFT_score=dbNSFP.DBNSFP42A_SIFT_score,
+            Polyphen2_HDIV_score=dbNSFP.DBNSFP42A_Polyphen2_HDIV_score,
+            Polyphen2_HVAR_score=dbNSFP.DBNSFP42A_Polyphen2_HVAR_score,
+            MutationTaster_score=dbNSFP.DBNSFP42A_MutationTaster_score,
+            MutationAssessor_score=dbNSFP.DBNSFP42A_MutationAssessor_score,
+            FATHMM_score=dbNSFP.DBNSFP42A_FATHMM_score,
+            PROVEAN_score=dbNSFP.DBNSFP42A_PROVEAN_score,
+            VEST4_score=dbNSFP.DBNSFP42A_VEST4_score,
+            MutPred_score=dbNSFP.DBNSFP42A_MutPred_score,
+            MVP_score=dbNSFP.DBNSFP42A_MVP_score,
+            MPC_score=dbNSFP.DBNSFP42A_MPC_score,
+            DEOGEN2_score=dbNSFP.DBNSFP42A_DEOGEN2_score,
+            REVEL_score=dbNSFP.DBNSFP42A_REVEL_score,
+            PrimateAI_score=dbNSFP.DBNSFP42A_PrimateAI_score,
+            CADD_phred=dbNSFP.DBNSFP42A_CADD_phred,
+            DANN_score=dbNSFP.DBNSFP42A_DANN_score,
+            MetaSVM_score=dbNSFP.DBNSFP42A_MetaSVM_score,
+            MetaLR_score=dbNSFP.DBNSFP42A_MetaLR_score,
+        )
+        missense_vars = missense_vars.annotate(AC=missense_vars.freq[0].AC)
+        missense_vars.select(
+            "context",
+            "ref",
+            "alt",
+            "methylation_level",
+            "mu",
+            "worst_csq",
+            "protein_coding",
+            "coverage",
+            "AC",
+            "SIFT_score",
+            "Polyphen2_HDIV_score",
+            "Polyphen2_HVAR_score",
+            "MutationTaster_score",
+            "MutationAssessor_score",
+            "FATHMM_score",
+            "PROVEAN_score",
+            "VEST4_score",
+            "MutPred_score",
+            "MVP_score",
+            "MPC_score",
+            "DEOGEN2_score",
+            "REVEL_score",
+            "PrimateAI_score",
+            "CADD_phred",
+            "DANN_score",
+            "MetaSVM_score",
+            "MetaLR_score",
+        ).export(output[0])
+
+
+rule missense_by_thresholds:
+    input:
+        missense_dbnsfp_parsed,
+    output:
+        missense_by_thresholds,
+    params:
+        prediction=[
+            "X",
+            "X",
+            "X",
+            "X",
+            "X",
+            "X",
+            "X",
+            "HVAR_probably_damaging)",
+            "HVAR_possibly_damaging)",
+            "HDIV_probably_damaging)",
+            "HDIV_possibly_damaging)",
+            "Deleterious",
+            "Probably_damaging",
+            "Possibly_damaging",
+            "Likely_deleterious",
+            "Likely_disease_causing",
+            "X",
+            "D",
+            "P",
+            "D",
+            "H",
+            "D",
+            "D",
+            "D",
+            "D",
+            "X",
+        ],
+        name=[
+            "auth", # "Authors"
+            "auth", # "Authors"
+            "auth", # "Authors"
+            "95sens", # "Jagadeesh2016 95% sensitivity"
+            "95sens", # "Jagadeesh2016 95% sensitivity
+            "95sens", # "Jagadeesh2016 95% sensitivity"
+            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+            "Ensembl",
+            "Ensembl",
+            "Ensembl",
+            "Ensembl",
+            "Ensembl",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+            "ClinGen",
+        ],
+        value=[
+            0.05,
+            0.8,
+            20.0,
+            10.37,
+            0.022,
+            0.49,
+            0.05,
+            0.909,
+            0.447,
+            0.957,
+            0.453,
+            0.05,
+            0.908,
+            0.446,
+            30.0,
+            0.5,
+            0.75,
+            0.049,
+            0.447,
+            0.5,
+            1.935,
+            -1.51,
+            -2.49,
+            0,
+            0.5,
+            19.0, # TODO: say "inferred" - what does that mean?
+        ],
+        column=[
+            "SIFT_score",
+            "Polyphen2_HVAR_score",
+            "CADD_phred",
+            "CADD_phred",
+            "Polyphen2_HVAR_score",
+            "SIFT_score",
+            "SIFT_score",
+            "Polyphen2_HVAR_score",
+            "Polyphen2_HVAR_score",
+            "Polyphen2_HDIV_score",
+            "Polyphen2_HDIV_score",
+            "SIFT_score",
+            "Polyphen2_HVAR_score",
+            "Polyphen2_HVAR_score",
+            "CADD_phred",
+            "REVEL_score",
+            "REVEL_score",
+            "SIFT_score",
+            "Polyphen2_HVAR_score",
+            "MutationTaster_score",
+            "MutationAssessor_score",
+            "FATHMM_score",
+            "PROVEAN_score",
+            "MetaSVM_score",
+            "MetaLR_score",
+            "CADD_phred",
+        ],
+        tool=[
+            "SIFT",
+            "PolyPhen",
+            "CADD",
+            "CADD",
+            "PolyPhen",
+            "SIFT",
+            "SIFT",
+            "PolyPhen",
+            "PolyPhen",
+            "PolyPhen",
+            "PolyPhen",
+            "SIFT",
+            "PolyPhen",
+            "PolyPhen",
+            "CADD",
+            "REVEL",
+            "REVEL",
+            "SIFT",
+            "PolyPhen",
+            "MutationTaster",
+            "MutationAssessor",
+            "FATHMM",
+            "PROVEAN",
+            "MetaSVM",
+            "MetaLR",
+            "CADD",
+        ],
+        sign=[
+            "<", # TODO: check
+            ">", # TODO: check
+            ">", # TODO: check
+            ">", # TODO: check
+            ">", # TODO: check
+            "<", # TODO: check
+            "<", # TODO: check
+            ">=",
+            ">=",
+            ">=",
+            ">=",
+            "<",
+            ">",
+            ">",
+            ">",
+            ">",
+            ">",
+            "<",
+            ">",
+            ">",
+            ">",
+            "<",
+            "<",
+            ">",
+            ">",
+            ">",
+        ]
+    run:
+        import hail as hl
+
+        # TODO: optimise the type specification part, shouldn't list them all because that it subject to change
+        missense_vars = hl.import_table(
+            input[0],
+            key=["locus", "alleles"],
+            types={
+                "locus": hl.tlocus(),
+                "alleles": hl.tarray(hl.tstr),
+                "AC": hl.tint32,
+                "SIFT_score": hl.tfloat,
+                "Polyphen2_HDIV_score": hl.tfloat,
+                "Polyphen2_HVAR_score": hl.tfloat,
+                "MutationTaster_score": hl.tfloat,
+                "MutationAssessor_score": hl.tfloat,
+                "FATHMM_score": hl.tfloat,
+                "PROVEAN_score": hl.tfloat,
+                "VEST4_score": hl.tfloat,
+                "MutPred_score": hl.tfloat,
+                "MVP_score": hl.tfloat,
+                "MPC_score": hl.tfloat,
+                "DEOGEN2_score": hl.tfloat,
+                "REVEL_score": hl.tfloat,
+                "PrimateAI_score": hl.tfloat,
+                "CADD_phred": hl.tfloat,
+                "DANN_score": hl.tfloat,
+                "MetaSVM_score": hl.tfloat,
+                "MetaLR_score": hl.tfloat,
+            },
+        )
+
+        # Annotation ##########################################################
+
+        for i in range(len(params["value"])):
+
+            column = params["column"][i]
+            if "." in column:
+                # if the column name contains '.', assume it is a nested field and extract it accordingly
+                field1, field2 = column.split(".")
+                predictor_col = missense_vars[field1][field2]
+            else:
+                predictor_col = missense_vars[column]
+
+                # determine the appropriate comparison function to use
+            if params["sign"][i] == ">":
+                compare_fn = lambda x, y: x > y
+            elif params["sign"][i] == ">=":
+                compare_fn = lambda x, y: x >= y
+            elif params["sign"][i] == "<":
+                compare_fn = lambda x, y: x < y
+            elif params["sign"][i] == "<=":
+                compare_fn = lambda x, y: x <= y
+            else:
+                raise ValueError(f"Invalid comparison operator: {params['sign'][i]}")
+
+                # create a Boolean column indicating whether the threshold is met
+            threshold_col = compare_fn(predictor_col, hl.literal(params["value"][i]))
+
+            # add the column to the Hail table
+            missense_vars = missense_vars.annotate(
+                **{f"meets_{params['tool'][i]}_{params['name'][i]}_{params['prediction'][i]}": threshold_col}
+            )
+
+            # group the missense_vars by the new annotations
+        annotations = [
+            f"meets_{tool}_{name}_{prediction}" for tool, name, prediction in zip(params["tool"], params["name"], params["prediction"])
+        ]
+
+        # Output ##############################################################
+
+        missense_vars.group_by(
+            "context", "ref", "alt", "methylation_level", "mu", *annotations
+        ).aggregate(
+            variant_count=hl.agg.count(),
+            singleton_count=hl.agg.count_where(missense_vars.AC == 1),
+        ).export(
+            output[0]
+        )
+
+
+# ClinVar #####################################################################
+
+
+rule annotate_clinvar:
+    output:
+        all_clinvar,
+    run:
+        import hail as hl
+        from preprocessing import preprocessing
+        from misc import flip_base
+
+        variants = preprocessing(
+            config["exomes_ht_path"],
+            config["context_ht_path"],
+            config["mutation_rates_ht_path"],
+            config["coverage_exomes_ht_path"],
+            {"female": config["female_exomes"], "male": config["male_exomes"]},
+        )
+
+        variants = variants.annotate(
+            original_ref=hl.cond(
+                (variants.was_flipped == True), flip_base(variants.ref), variants.ref
+            ),
+            original_alt=hl.cond(
+                (variants.was_flipped == True), flip_base(variants.alt), variants.alt
+            ),
+        )
+
+        # NOTE: requires '--requester-pays-allow-annotation-db'
+        clinvar = hl.experimental.load_dataset(
+            name="clinvar_variant_summary",
+            version="2019-07",
+            reference_genome="GRCh37",
+            region="us",
+            cloud="gcp",
+        )
+
+        clinvar = clinvar.filter(clinvar.Type == "single nucleotide variant")
+
+        clinvar = clinvar.key_by(
+            locus=hl.locus(
+                clinvar.interval.start.contig,
+                clinvar.interval.start.position,
+                "GRCh37",
+            ),
+            alleles=[clinvar.ReferenceAllele, clinvar.AlternateAllele],
+        )
+
+        variants = variants.key_by(
+            locus=hl.locus(
+                variants.locus.contig,
+                variants.locus.position,
+                "GRCh37",
+            ),
+            alleles=[variants.original_ref, variants.original_alt],
+        )
+
+        clinvar = clinvar[variants.key]
+        variants = variants.annotate(
+            ClinicalSignificance=clinvar.ClinicalSignificance,
+            Type=clinvar.Type,
+            ReviewStatus=clinvar.ReviewStatus,
+            NumberSubmitters=clinvar.NumberSubmitters,
+            OriginSimple=clinvar.OriginSimple,
+            Origin=clinvar.Origin,
+            SubmitterCategories=clinvar.SubmitterCategories,
+            PhenotypeList=clinvar.PhenotypeList,
+            PhenotypeIDS=clinvar.PhenotypeIDS,
+        )
+
+        variants.group_by(
+            "context",
+            "ref",
+            "alt",
+            "methylation_level",
+            "mu",
+            "worst_csq",
+            "protein_coding",
+            "coverage",
+            "ClinicalSignificance",
+            "Type",
+            "ReviewStatus",
+            "NumberSubmitters",
+            "OriginSimple",
+            "Origin",
+            "SubmitterCategories",
+            "PhenotypeList",
+            "PhenotypeIDS",
+        ).aggregate(
+            variant_count=hl.agg.count(),
+            singleton_count=hl.agg.count_where(variants.freq[0].AC == 1),
+        ).export(
+            output[0]
+        )
+
+
+# NOTE: this is for plotting AF distributions for different ClinVar categories
+rule annotate_clinvar_w_AF_AC:
+    output:
+        all_clinvar_w_AF_AC,
+    run:
+        import hail as hl
+        from preprocessing import preprocessing
+        from misc import flip_base
+
+        variants = preprocessing(
+            config["exomes_ht_path"],
+            config["context_ht_path"],
+            config["mutation_rates_ht_path"],
+            config["coverage_exomes_ht_path"],
+            {"female": config["female_exomes"], "male": config["male_exomes"]},
+        )
+
+        variants = variants.annotate(
+            original_ref=hl.cond(
+                (variants.was_flipped == True), flip_base(variants.ref), variants.ref
+            ),
+            original_alt=hl.cond(
+                (variants.was_flipped == True), flip_base(variants.alt), variants.alt
+            ),
+        )
+
+        # NOTE: requires '--requester-pays-allow-annotation-db'
+        clinvar = hl.experimental.load_dataset(
+            name="clinvar_variant_summary",
+            version="2019-07",
+            reference_genome="GRCh37",
+            region="us",
+            cloud="gcp",
+        )
+
+        clinvar = clinvar.filter(clinvar.Type == "single nucleotide variant")
+
+        clinvar = clinvar.key_by(
+            locus=hl.locus(
+                clinvar.interval.start.contig,
+                clinvar.interval.start.position,
+                "GRCh37",
+            ),
+            alleles=[clinvar.ReferenceAllele, clinvar.AlternateAllele],
+        )
+
+        variants = variants.key_by(
+            locus=hl.locus(
+                variants.locus.contig,
+                variants.locus.position,
+                "GRCh37",
+            ),
+            alleles=[variants.original_ref, variants.original_alt],
+        )
+
+        clinvar = clinvar[variants.key]
+        variants = variants.annotate(
+            ClinicalSignificance=clinvar.ClinicalSignificance,
+            Type=clinvar.Type,
+            ReviewStatus=clinvar.ReviewStatus,
+            NumberSubmitters=clinvar.NumberSubmitters,
+            OriginSimple=clinvar.OriginSimple,
+            Origin=clinvar.Origin,
+            SubmitterCategories=clinvar.SubmitterCategories,
+            PhenotypeList=clinvar.PhenotypeList,
+            PhenotypeIDS=clinvar.PhenotypeIDS,
+        )
+
+        variants = variants.annotate(AF=variants.freq[0].AF)
+        variants = variants.annotate(AC=variants.freq[0].AC)
+
+        variants.group_by(
+            "context",
+            "ref",
+            "alt",
+            "methylation_level",
+            "mu",
+            "worst_csq",
+            "protein_coding",
+            "coverage",
+            "ClinicalSignificance",
+            "Type",
+            "ReviewStatus",
+            "NumberSubmitters",
+            "OriginSimple",
+            "Origin",
+            "SubmitterCategories",
+            "PhenotypeList",
+            "PhenotypeIDS",
+            "AF",
+            "AC",
+        ).aggregate(
+            variant_count=hl.agg.count(),
+            singleton_count=hl.agg.count_where(variants.freq[0].AC == 1),
+        ).export(
+            output[0]
+        )
+
+
+# TODO: sync this rule with "rule annotate_clinvar"
+rule annotate_clinvar_genomes:
+    output:
+        all_clinvar_genomes,
+    run:
+        import hail as hl
+        from preprocessing import preprocessing
+        from misc import flip_base
+
+        variants = preprocessing(
+            config["genomes_ht_path"],
+            config["context_ht_path"],
+            config["mutation_rates_ht_path"],
+            config["coverage_genomes_ht_path"],
+            {"female": config["female_genomes"], "male": config["male_genomes"]},
+        )
+
+        variants = variants.annotate(
+            original_ref=hl.cond(
+                (variants.was_flipped == True), flip_base(variants.ref), variants.ref
+            ),
+            original_alt=hl.cond(
+                (variants.was_flipped == True), flip_base(variants.alt), variants.alt
+            ),
+        )
+
+        # NOTE: requires '--requester-pays-allow-annotation-db'
+        clinvar = hl.experimental.load_dataset(
+            name="clinvar_variant_summary",
+            version="2019-07",
+            reference_genome="GRCh37",
+            region="us",
+            cloud="gcp",
+        )
+
+        clinvar = clinvar.filter(clinvar.Type == "single nucleotide variant")
+
+        clinvar = clinvar.key_by(
+            locus=hl.locus(
+                clinvar.interval.start.contig,
+                clinvar.interval.start.position,
+                "GRCh37",
+            ),
+            alleles=[clinvar.ReferenceAllele, clinvar.AlternateAllele],
+        )
+
+        variants = variants.key_by(
+            locus=hl.locus(
+                variants.locus.contig,
+                variants.locus.position,
+                "GRCh37",
+            ),
+            alleles=[variants.original_ref, variants.original_alt],
+        )
+
+        clinvar = clinvar[variants.key]
+        variants = variants.annotate(
+            ClinicalSignificance=clinvar.ClinicalSignificance,
+            Type=clinvar.Type,
+            ReviewStatus=clinvar.ReviewStatus,
+            NumberSubmitters=clinvar.NumberSubmitters,
+            OriginSimple=clinvar.OriginSimple,
+            Origin=clinvar.Origin,
+            SubmitterCategories=clinvar.SubmitterCategories,
+            PhenotypeList=clinvar.PhenotypeList,
+            PhenotypeIDS=clinvar.PhenotypeIDS,
+        )
+
+        variants.group_by(
+            "context",
+            "ref",
+            "alt",
+            "methylation_level",
+            "mu",
+            "worst_csq",
+            "protein_coding",
+            "coverage",
+            "ClinicalSignificance",
+            "Type",
+            "ReviewStatus",
+            "NumberSubmitters",
+            "OriginSimple",
+            "Origin",
+            "SubmitterCategories",
+            "PhenotypeList",
+            "PhenotypeIDS",
+        ).aggregate(
+            variant_count=hl.agg.count(),
+            singleton_count=hl.agg.count_where(variants.freq[0].AC == 1),
+        ).export(
+            output[0]
+        )
