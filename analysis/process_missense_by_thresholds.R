@@ -9,11 +9,26 @@ for (i in 1:length(snakemake@input[["scores"]])) {
   df <- rbind(df, x)
 }
 
-# Since NAs are excluded, there are only two options, "Yes" and "No"
 df <- df %>%
   filter(variable_value == "true") %>%
   select(-variable_value) %>%
   rowwise() %>%
-  mutate(method = unlist(str_split(variable, "_"))[2], source = unlist(str_split(variable, "_"))[3]) %>%
+  ######################################################################
+  # These two mutate operations extract the names of the tool for
+  # which the threshold was set and the source of that threshold. For
+  # combinations of filters, "method" and "source" will contain '&'
+  # symbols. For example, "SIFT&PolyPhen" and "source1&source2" means
+  # that the threshold for SIFT was taken from "source1", the
+  # threshold for PolyPhen was taken from "source2" and a combination
+  # of those two filters was used.
+  mutate(method = {
+    method <- lapply(unlist(str_split(variable, "meets_"))[-1], function(v) str_split(v, "_")) %>% lapply(function(a) unlist(a)[1:3])
+    sapply(seq_along(method[[1]]), function(i) paste(sapply(method, "[[", i), collapse = " & "))[1]
+  }) %>%
+  mutate(source = {
+    source <- lapply(unlist(str_split(variable, "meets_"))[-1], function(v) str_split(v, "_")) %>% lapply(function(a) unlist(a)[1:3])
+    sapply(seq_along(source[[1]]), function(i) paste(sapply(source, "[[", i), collapse = " & "))[2]
+  }) %>%
+  ######################################################################
   select(-variable) %>%
   write.table(file = snakemake@output[["joined_scores"]], quote = FALSE, row.names = FALSE, sep = "\t")

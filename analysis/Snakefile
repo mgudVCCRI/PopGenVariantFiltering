@@ -1,20 +1,45 @@
+import colorsys
+import itertools
 from snakemake.remote.GS import RemoteProvider
 
 GS = RemoteProvider()
 
-colors2 = ["#999899", "#B11116"]
-colors3 = ["#F04B5D", "#B11116", "#999899"]
-reds = ["#B11116", "#EF4640", "#F04B5D"]  # TODO: fix, too similar
-greys = ["#56565A", "#999899", "#BDBBBB", "#D8D1CA", "#CDC3BB"]
 
-threshold_filters = [
-    "meets_sift_auth",
-    "meets_polyphen_auth",
-    "meets_sift_95sens",
-    "meets_polyphen_95sens",
-    "meets_all_95sens",
-    "meets_all_auth",
+######################################################################
+# Basic filters to use in the analysis
+annotations_to_use = [
+    "meets_SIFT_auth_X",
+    "meets_PolyPhen_95sens_X",
+    "meets_REVEL_ClinGen_X",
+    "meets_CADD_auth_X",
 ]
+######################################################################
+
+
+# TODO: [2023-05-17] you don't use the "prediction" part of the annotation - bug-prone
+
+# List of threshold sources
+source_labels = [string.split("_")[2] for string in annotations_to_use]
+source_labels = source_labels + list(
+    map(" & ".join, itertools.permutations(source_labels))
+)
+# TODO: need to prettify the labels here, so that it's "Default" instead of "auth", etc.
+source_labels_fullnames = source_labels
+
+# Individual filters and combination filters to use in the analysis
+threshold_filters = annotations_to_use + [
+    "_".join(x) for x in itertools.combinations(annotations_to_use, 2)
+]
+
+# TODO: make this dynamically allocated?
+n = len(threshold_filters)
+# Generate a list of n color-blind friendly HEX colors
+HSV_tuples = [(x * 1.0 / n, 0.5, 0.5) for x in range(n)]
+RGB_tuples = list(
+    map(lambda x: tuple(int(i * 255) for i in colorsys.hsv_to_rgb(*x)), HSV_tuples)
+)
+colors = ["#%02x%02x%02x" % rgb for rgb in RGB_tuples]
+colors2 = ["#999899", "#B11116"]
 
 # NOTE: list of metrics for which to generate "CAPS by ..."
 # decile/percentile/etc.
@@ -92,11 +117,15 @@ clinvar_maps_alt_plot = "clinvar_maps_alt_plot.pdf"
 clinvar_hc_maps_alt_plot = "clinvar_hc_maps_alt_plot.pdf"
 all_clinvar_benign = "all_clinvar_benign.tsv"
 clinvar_hc_benign = "clinvar_hc_benign.tsv"
+
 # Missense variants that satisfy and don't satisfy some of the common
 # deleteriousness thresholds
-missense_by_thresholds_unprocessed = GS.remote(
-    config["gcp_rootdir"] + "missense_by_thresholds.tsv"
-)
+# TODO: use a remote file!
+missense_by_thresholds_unprocessed = "missense_by_thresholds_unprocessed.tsv"
+# missense_by_thresholds_unprocessed = GS.remote(
+#     config["gcp_rootdir"] + "missense_by_thresholds.tsv"
+# )
+
 # CAPS scores for groups of missense variants that satisfy and don't
 # satisfy some of the common deleteriousness thresholds
 missense_by_thresholds_plot = "missense_by_thresholds_caps.pdf"
@@ -207,26 +236,24 @@ rule viz_by_thresholds:
         uconf="caps_uconf",
         # TODO: make this value reproducible!
         gnomAD_missense_level=0.0396,
-        xlab="",
-        aspect_ratio=0.4,
+        aspect_ratio=0.2,
         point_size=1,
+        point_alpha=0.75,
         text_size=18,
-        xlab_hjust=0.5,
-        xlab_vjust=0,
-        colors=[colors3, "black"],
-        source_labels_set=["95sens", "auth"],
-        source_labels=["95sens", "auth"],
-        new_source_labels=[
-            '"95% sensitivity" thresholds\n(less stringent)',
-            '"Default" thresholds\n(more stringent)',
-        ],
-        method_labels_set=["sift", "polyphen", "all"],
-        method_labels=["sift", "polyphen", "all"],
-        new_method_labels=[
-            "SIFT",
-            "PolyPhen",
-            "All",
-        ],
+        xlab="",
+        xlab_angle = 45,
+        xlab_vjust=1,
+        xlab_hjust=1,
+        colors=colors,
+        ############################################################
+        # TODO: as of [2023-05-17] doesn't work
+        # source_labels=source_labels,
+        # new_source_labels=source_labels_fullnames,
+        ############################################################
+        # NOTE: only use this when you need a selection; if you need all just skip
+        # source_labels_set=["95sens", "auth"],
+        # NOTE: only use this when you need a selection; if you need all just skip
+        # method_labels_set=["SIFT", "PolyPhen"],
     output:
         plot=missense_by_thresholds_plot,
     script:
@@ -238,6 +265,8 @@ rule missense_by_thresholds_preprocessing:
         unprocessed=missense_by_thresholds_unprocessed,
     output:
         processed=missense_by_thresholds,
+    params:
+        filters=annotations_to_use,
     script:
         "missense_by_thresholds_preprocessing.R"
 

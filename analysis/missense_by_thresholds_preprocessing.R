@@ -1,23 +1,22 @@
 library(dplyr)
 library(magrittr)
 
-#TODO: make this work for general cases!
-
 x <- read.table(snakemake@input[["unprocessed"]], header = TRUE, sep = "\t")
 
-x %>%
-  rowwise() %>%
-  mutate(
-    meets_all_auth = ifelse(meets_sift_auth == "true" & meets_polyphen_auth == "true", "true", "false"),
-    meets_all_95sens = ifelse(meets_sift_95sens == "true" & meets_polyphen_95sens == "true", "true", "false")
-  ) %>%
-  write.table(file = snakemake@output[["processed"]], quote = FALSE, row.names = FALSE, sep = "\t")
+x <- select(x, -matches("^meets_"), snakemake@params[["filters"]])
 
+# Combinations of filters #######################################
+# Get all column names that start with "column_"
+cols <- grep("^meets_", names(x), value = TRUE)
+# Create a list of all possible combinations of column names
+combos <- combn(cols, 2, simplify = FALSE)
+# Loop through the list of combinations and create new columns
+for (i in seq_along(combos)) {
+  col1 <- combos[[i]][1]
+  col2 <- combos[[i]][2]
+  new_col <- paste0(col1, "_", col2)
+  x <- x %>% mutate(!!new_col := ifelse(x[[col1]] == "true" & x[[col2]] == "true", "true", "false"))
+}
+#################################################################
 
-# x %>%
-#   rowwise() %>%
-#   mutate(
-#     meets_all_auth = ifelse(meets_cadd_auth == "true" & meets_sift_auth == "true" & meets_polyphen_auth == "true", "true", "false"),
-#     meets_all_95sens = ifelse(meets_cadd_95sens == "true" & meets_sift_95sens == "true" & meets_polyphen_95sens == "true", "true", "false")
-#   ) %>%
-#   write.table(file = snakemake@output[["processed"]], quote = FALSE, row.names = FALSE, sep = "\t")
+write.table(x, file = snakemake@output[["processed"]], quote = FALSE, row.names = FALSE, sep = "\t")

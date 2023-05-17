@@ -1,7 +1,5 @@
 # Generates a figure showing CAPS scores for variants split into groups
 
-# TODO: finish, make more generalisable
-
 library(dplyr)
 library(ggplot2)
 
@@ -10,6 +8,8 @@ scores <- read.table(snakemake@input[["scores"]],
   sep = "\t"
 )
 
+# Reformatting ######################################################
+#TODO: [2023-05-17] double-check that this works correctly
 if (!is.null(snakemake@params[["source_labels_set"]])) scores <- filter(scores, source %in% snakemake@params[["source_labels_set"]])
 
 if (!is.null(snakemake@params[["source_labels"]]) || !is.null(snakemake@params[["new_source_labels"]])) {
@@ -33,6 +33,7 @@ if (!is.null(snakemake@params[["method_labels"]]) || !is.null(snakemake@params[[
     stop("Either original or new labels were not provided")
   }
 }
+#####################################################################
 
 pdf(snakemake@output[["plot"]])
 ggplot(scores) +
@@ -48,9 +49,10 @@ ggplot(scores) +
   geom_pointrange(
     aes(
       ymin = !!sym(snakemake@params[["lconf"]]),
-      ymax = !!sym(snakemake@params[["uconf"]])
+      ymax = !!sym(snakemake@params[["uconf"]]),
     ),
     linewidth = 1.8,
+    alpha = ifelse(is.null(snakemake@params[["point_alpha"]]), 1, snakemake@params[["point_alpha"]]),
     size = ifelse(is.null(snakemake@params[["point_size"]]), 1.3, snakemake@params[["point_size"]]),
     position = position_dodge(width = ifelse(is.null(snakemake@params[["dodge_width"]]), 0.65, snakemake@params[["dodge_width"]]))
   ) +
