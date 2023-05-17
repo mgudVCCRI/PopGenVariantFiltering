@@ -14,13 +14,14 @@ df <- df %>%
   select(-variable_value) %>%
   rowwise() %>%
   ######################################################################
-  # These two mutate operations extract the names of the tool for
-  # which the threshold was set and the source of that threshold. For
-  # combinations of filters, "method" and "source" will contain '&'
-  # symbols. For example, "SIFT&PolyPhen" and "source1&source2" means
-  # that the threshold for SIFT was taken from "source1", the
-  # threshold for PolyPhen was taken from "source2" and a combination
-  # of those two filters was used.
+  # These three mutate operations extract the name of the tool for
+  # which the threshold was set, the source of that threshold and the
+  # prediction. For combinations of filters, "method", "source" and
+  # "prediction" will contain '&' symbols. For example, "SIFT &
+  # PolyPhen" and "source1 & source2" means that the threshold for
+  # SIFT was taken from "source1", the threshold for PolyPhen was
+  # taken from "source2" and a combination of those two filters was
+  # used.
   mutate(method = {
     method <- lapply(unlist(str_split(variable, "meets_"))[-1], function(v) str_split(v, "_")) %>% lapply(function(a) unlist(a)[1:3])
     sapply(seq_along(method[[1]]), function(i) paste(sapply(method, "[[", i), collapse = " & "))[1]
@@ -28,6 +29,10 @@ df <- df %>%
   mutate(source = {
     source <- lapply(unlist(str_split(variable, "meets_"))[-1], function(v) str_split(v, "_")) %>% lapply(function(a) unlist(a)[1:3])
     sapply(seq_along(source[[1]]), function(i) paste(sapply(source, "[[", i), collapse = " & "))[2]
+  }) %>%
+  mutate(prediction = {
+    prediction <- lapply(unlist(str_split(variable, "meets_"))[-1], function(v) str_split(v, "_")) %>% lapply(function(a) unlist(a)[1:3])
+    sapply(seq_along(prediction[[1]]), function(i) paste(sapply(prediction, "[[", i), collapse = " & "))[3]
   }) %>%
   ######################################################################
   select(-variable) %>%

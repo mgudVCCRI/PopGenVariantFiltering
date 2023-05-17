@@ -1,22 +1,20 @@
+import random
 import colorsys
 import itertools
 from snakemake.remote.GS import RemoteProvider
 
-GS = RemoteProvider()
+# TODO: put back
+# GS = RemoteProvider()
 
 
 ######################################################################
 # Basic filters to use in the analysis
 annotations_to_use = [
-    "meets_SIFT_auth_X",
     "meets_PolyPhen_95sens_X",
-    "meets_REVEL_ClinGen_X",
+    "meets_REVEL_Ensembl_Likely_disease_causing",
     "meets_CADD_auth_X",
 ]
 ######################################################################
-
-
-# TODO: [2023-05-17] you don't use the "prediction" part of the annotation - bug-prone
 
 # List of threshold sources
 source_labels = [string.split("_")[2] for string in annotations_to_use]
@@ -26,12 +24,19 @@ source_labels = source_labels + list(
 # TODO: need to prettify the labels here, so that it's "Default" instead of "auth", etc.
 source_labels_fullnames = source_labels
 
+# List of threshold predictions
+prediction_labels = [string.split("_")[3] for string in annotations_to_use]
+prediction_labels = prediction_labels + list(
+    map(" & ".join, itertools.permutations(prediction_labels))
+)
+# TODO: need to prettify the labels here
+prediction_labels_fullnames = prediction_labels
+
 # Individual filters and combination filters to use in the analysis
 threshold_filters = annotations_to_use + [
     "_".join(x) for x in itertools.combinations(annotations_to_use, 2)
 ]
 
-# TODO: make this dynamically allocated?
 n = len(threshold_filters)
 # Generate a list of n color-blind friendly HEX colors
 HSV_tuples = [(x * 1.0 / n, 0.5, 0.5) for x in range(n)]
@@ -40,6 +45,7 @@ RGB_tuples = list(
 )
 colors = ["#%02x%02x%02x" % rgb for rgb in RGB_tuples]
 colors2 = ["#999899", "#B11116"]
+shapes = [random.randint(0, 25) for _ in range(n)]
 
 # NOTE: list of metrics for which to generate "CAPS by ..."
 # decile/percentile/etc.
@@ -76,7 +82,10 @@ filtering = "filtering.R"
 
 # All variants grouped by their most severe consequence
 by_csq = "by_csq.tsv"
-by_csq_unprocessed = GS.remote(config["gcp_rootdir"] + "by_csq.tsv")
+
+# TODO: put back
+by_csq_unprocessed = "by_csq_unprocessed.tsv"
+# by_csq_unprocessed = GS.remote(config["gcp_rootdir"] + "by_csq.tsv")
 
 # Synonymous variants grouped by context/mutability (exomes)
 syn_by_context = "syn_by_context.tsv"
@@ -92,7 +101,11 @@ syn_by_context_pdd_genomes = "../../CAPS/model/phat_sim_genomes.tsv"
 
 # ClinVar #####################################################################
 # All SNVs annotated with ClinVar
-all_clinvar_unprocessed = GS.remote(config["gcp_rootdir"] + "all_clinvar.tsv")
+
+# TODO: put back
+all_clinvar_unprocessed = "all_clinvar_unprocessed.tsv"
+# all_clinvar_unprocessed = GS.remote(config["gcp_rootdir"] + "all_clinvar.tsv")
+
 all_clinvar = "all_clinvar.tsv"
 clinvar_hc = "clinvar_hc.tsv"  # High confidence set
 # CAPS scores for all SNVs annotated with ClinVar
@@ -136,10 +149,6 @@ missense_by_thresholds = "missense_by_thresholds.tsv"
 # All variants annotated with all metrics (dbNSFP)
 # all_metrics = GS.remote(config["gcp_rootdir"] + "all_dbnsfp.tsv")
 all_metrics = "all_dbnsfp.tsv"  # TODO: replace with remote
-# All variants annotated with CADD
-all_cadd = GS.remote(config["gcp_rootdir"] + "all_cadd.tsv")
-# All variants annotated with DANN
-all_dann = GS.remote(config["gcp_rootdir"] + "all_dann.tsv")
 # CAPS scores for groups of missense variants that satisfy and don't
 # satisfy some of the common deleteriousness thresholds
 missense_by_thresholds_scores = "missense_by_thresholds_caps.tsv"
@@ -236,15 +245,16 @@ rule viz_by_thresholds:
         uconf="caps_uconf",
         # TODO: make this value reproducible!
         gnomAD_missense_level=0.0396,
-        aspect_ratio=0.2,
+        aspect_ratio=0.7,
         point_size=1,
         point_alpha=0.75,
         text_size=18,
         xlab="",
-        xlab_angle = 45,
+        xlab_angle = 30,
         xlab_vjust=1,
         xlab_hjust=1,
         colors=colors,
+        shapes = shapes,
         ############################################################
         # TODO: as of [2023-05-17] doesn't work
         # source_labels=source_labels,
@@ -271,100 +281,6 @@ rule missense_by_thresholds_preprocessing:
         "missense_by_thresholds_preprocessing.R"
 
 
-# Calculate CAPS for each DANN group
-rule all_dann_caps_scores:
-    input:
-        variants=all_dann,
-        exp_variants=syn_by_context_p4,
-    params:
-        phat_method="Var",
-        confint_method="CAPS",
-        variable="dann_decile",
-    output:
-        scores=all_dann_caps_scores,
-    script:
-        calculate_caps
-
-
-# Calculate CAPS for each CADD group
-rule all_cadd_caps_scores:
-    input:
-        variants=all_cadd,
-        exp_variants=syn_by_context_p4,
-    params:
-        phat_method="Var",
-        confint_method="CAPS",
-        variable="cadd_decile",
-    output:
-        scores=all_cadd_caps_scores,
-    script:
-        calculate_caps
-
-
-# TODO: you many not need this after all if you use "metrics_set"
-rule all_cadd_caps_plot:
-    input:
-        scores=all_cadd_caps_scores,
-    output:
-        plot=all_cadd_caps_plot,
-    params:
-        aspect_ratio=0.5,
-        xlab="CADD decile",
-        xlab_angle=45,
-        xlab_vjust=1,
-        xlab_hjust=1,
-        reorder_xlab_by_score=False,
-        xlab_labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-        new_xlab_labels=[
-            "10%",
-            "20%",
-            "30%",
-            "40%",
-            "50%",
-            "60%",
-            "70%",
-            "80%",
-            "90%",
-            "100%",
-        ],
-        score_name="caps",
-        lconf="caps_lconf",
-        uconf="caps_uconf",
-    script:
-        viz_scores
-
-
-# TODO: you many not need this after all if you use "metrics_set"
-rule all_dann_caps_plot:
-    input:
-        scores=all_dann_caps_scores,
-    output:
-        plot=all_dann_caps_plot,
-    params:
-        aspect_ratio=0.5,
-        xlab="DANN decile",
-        xlab_angle=45,
-        xlab_vjust=1,
-        xlab_hjust=1,
-        reorder_xlab_by_score=False,
-        xlab_labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-        new_xlab_labels=[
-            "10%",
-            "20%",
-            "30%",
-            "40%",
-            "50%",
-            "60%",
-            "70%",
-            "80%",
-            "90%",
-            "100%",
-        ],
-        score_name="caps",
-        lconf="caps_lconf",
-        uconf="caps_uconf",
-    script:
-        viz_scores
 
 
 # TODO: finish

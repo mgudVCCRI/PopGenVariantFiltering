@@ -9,7 +9,8 @@ scores <- read.table(snakemake@input[["scores"]],
 )
 
 # Reformatting ######################################################
-#TODO: [2023-05-17] double-check that this works correctly
+# TODO: [2023-05-17] double-check that this works correctly
+# TODO: need to reformat "prediction" fields
 if (!is.null(snakemake@params[["source_labels_set"]])) scores <- filter(scores, source %in% snakemake@params[["source_labels_set"]])
 
 if (!is.null(snakemake@params[["source_labels"]]) || !is.null(snakemake@params[["new_source_labels"]])) {
@@ -38,7 +39,7 @@ if (!is.null(snakemake@params[["method_labels"]]) || !is.null(snakemake@params[[
 pdf(snakemake@output[["plot"]])
 ggplot(scores) +
   aes(
-    x = factor(source), color = factor(method), y = !!sym(snakemake@params[["score_name"]]),
+    x = factor(source), y = !!sym(snakemake@params[["score_name"]]),
   ) +
   xlab(snakemake@params[["xlab"]]) +
   ylab(ifelse(snakemake@params[["score_name"]] %in% c("maps", "caps", "caps_pdd"), case_when(
@@ -50,6 +51,7 @@ ggplot(scores) +
     aes(
       ymin = !!sym(snakemake@params[["lconf"]]),
       ymax = !!sym(snakemake@params[["uconf"]]),
+      color = method, shape = prediction
     ),
     linewidth = 1.8,
     alpha = ifelse(is.null(snakemake@params[["point_alpha"]]), 1, snakemake@params[["point_alpha"]]),
@@ -68,7 +70,7 @@ ggplot(scores) +
   theme_classic() +
   theme(
     aspect.ratio = ifelse(!is.null(snakemake@params[["aspect_ratio"]]), snakemake@params[["aspect_ratio"]], 1),
-    legend.position = "top",
+    legend.position = "right",
     axis.text.x = element_text(
       vjust = snakemake@params[["xlab_vjust"]],
       hjust = snakemake@params[["xlab_hjust"]],
@@ -77,8 +79,11 @@ ggplot(scores) +
     text = element_text(size = ifelse(is.null(snakemake@params[["text_size"]]), 24, snakemake@params[["text_size"]])),
     plot.margin = margin(0, 5.5, 0, 5.5)
   ) +
-  scale_color_manual(snakemake@params[["legend_title"]],
+  scale_color_manual(snakemake@params[["color_legend_title"]],
     values = snakemake@params[["colors"]]
+  ) +
+  scale_shape_manual(snakemake@params[["shape_legend_title"]],
+    values = snakemake@params[["shapes"]]
   ) +
   {
     if (!is.null(snakemake@params[["gnomAD_missense_level"]])) geom_hline(aes(yintercept = snakemake@params[["gnomAD_missense_level"]]), linetype = "dashed")
