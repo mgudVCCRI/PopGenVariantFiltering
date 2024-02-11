@@ -27,18 +27,25 @@ missense_dbnsfp_parsed = GS.remote(
 # thresholds
 missense_by_thresholds = GS.remote(config["gcp_rootdir"] + "missense_by_thresholds.tsv")
 
+# CHD VUSs from a case study
+CHD_VUSs = "CHD_VUSs_hg19.tsv"
+# CHD VUSs from a case study found in gnomAD
+gnomAD_CHD_VUSs = GS.remote(config["gcp_rootdir"] + "gnomAD_CHD_VUSs.tsv")
+
 
 rule all:
     input:
         # Variants annotated with pathogenicity metrics #######################
         #      all_dbnsfp,
         # Variants annotated according to a set of thresholds #################
-        missense_by_thresholds,
+        #      missense_by_thresholds,
         #      missense_dbnsfp,
         #      missense_dbnsfp_parsed,
         # Variants by ClinVar categories ######################################
         #      all_clinvar,
         #      all_clinvar_genomes,
+        # CHD case study ######################################################
+        gnomAD_CHD_VUSs,
 
 
 ###############################################################################
@@ -360,259 +367,260 @@ rule missense_annotate_dbnsfp:
         ).export(output[0])
 
 
-rule missense_by_thresholds:
-    input:
-        missense_dbnsfp_parsed,
-    output:
-        missense_by_thresholds,
-    params:
-        prediction=[
-            "X",
-            "X",
-            "X",
-            "X",
-            "X",
-            "X",
-            "X",
-            "HVAR_probably_damaging)",
-            "HVAR_possibly_damaging)",
-            "HDIV_probably_damaging)",
-            "HDIV_possibly_damaging)",
-            "Deleterious",
-            "Probably_damaging",
-            "Possibly_damaging",
-            "Likely_deleterious",
-            "Likely_disease_causing",
-            "X",
-            "D",
-            "P",
-            "D",
-            "H",
-            "D",
-            "D",
-            "D",
-            "D",
-            "X",
-        ],
-        name=[
-            "auth", # "Authors"
-            "auth", # "Authors"
-            "auth", # "Authors"
-            "95sens", # "Jagadeesh2016 95% sensitivity"
-            "95sens", # "Jagadeesh2016 95% sensitivity
-            "95sens", # "Jagadeesh2016 95% sensitivity"
-            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
-            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
-            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
-            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
-            "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
-            "Ensembl",
-            "Ensembl",
-            "Ensembl",
-            "Ensembl",
-            "Ensembl",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-            "ClinGen",
-        ],
-        value=[
-            0.05,
-            0.8,
-            20.0,
-            10.37,
-            0.022,
-            0.49,
-            0.05,
-            0.909,
-            0.447,
-            0.957,
-            0.453,
-            0.05,
-            0.908,
-            0.446,
-            30.0,
-            0.5,
-            0.75,
-            0.049,
-            0.447,
-            0.5,
-            1.935,
-            -1.51,
-            -2.49,
-            0,
-            0.5,
-            19.0, # TODO: say "inferred" - what does that mean?
-        ],
-        column=[
-            "SIFT_score",
-            "Polyphen2_HVAR_score",
-            "CADD_phred",
-            "CADD_phred",
-            "Polyphen2_HVAR_score",
-            "SIFT_score",
-            "SIFT_score",
-            "Polyphen2_HVAR_score",
-            "Polyphen2_HVAR_score",
-            "Polyphen2_HDIV_score",
-            "Polyphen2_HDIV_score",
-            "SIFT_score",
-            "Polyphen2_HVAR_score",
-            "Polyphen2_HVAR_score",
-            "CADD_phred",
-            "REVEL_score",
-            "REVEL_score",
-            "SIFT_score",
-            "Polyphen2_HVAR_score",
-            "MutationTaster_score",
-            "MutationAssessor_score",
-            "FATHMM_score",
-            "PROVEAN_score",
-            "MetaSVM_score",
-            "MetaLR_score",
-            "CADD_phred",
-        ],
-        tool=[
-            "SIFT",
-            "PolyPhen",
-            "CADD",
-            "CADD",
-            "PolyPhen",
-            "SIFT",
-            "SIFT",
-            "PolyPhen",
-            "PolyPhen",
-            "PolyPhen",
-            "PolyPhen",
-            "SIFT",
-            "PolyPhen",
-            "PolyPhen",
-            "CADD",
-            "REVEL",
-            "REVEL",
-            "SIFT",
-            "PolyPhen",
-            "MutationTaster",
-            "MutationAssessor",
-            "FATHMM",
-            "PROVEAN",
-            "MetaSVM",
-            "MetaLR",
-            "CADD",
-        ],
-        sign=[
-            "<", # TODO: check
-            ">", # TODO: check
-            ">", # TODO: check
-            ">", # TODO: check
-            ">", # TODO: check
-            "<", # TODO: check
-            "<", # TODO: check
-            ">=",
-            ">=",
-            ">=",
-            ">=",
-            "<",
-            ">",
-            ">",
-            ">",
-            ">",
-            ">",
-            "<",
-            ">",
-            ">",
-            ">",
-            "<",
-            "<",
-            ">",
-            ">",
-            ">",
-        ]
-    run:
-        import hail as hl
-
-        # TODO: optimise the type specification part, shouldn't list them all because that it subject to change
-        missense_vars = hl.import_table(
-            input[0],
-            key=["locus", "alleles"],
-            types={
-                "locus": hl.tlocus(),
-                "alleles": hl.tarray(hl.tstr),
-                "AC": hl.tint32,
-                "SIFT_score": hl.tfloat,
-                "Polyphen2_HDIV_score": hl.tfloat,
-                "Polyphen2_HVAR_score": hl.tfloat,
-                "MutationTaster_score": hl.tfloat,
-                "MutationAssessor_score": hl.tfloat,
-                "FATHMM_score": hl.tfloat,
-                "PROVEAN_score": hl.tfloat,
-                "VEST4_score": hl.tfloat,
-                "MutPred_score": hl.tfloat,
-                "MVP_score": hl.tfloat,
-                "MPC_score": hl.tfloat,
-                "DEOGEN2_score": hl.tfloat,
-                "REVEL_score": hl.tfloat,
-                "PrimateAI_score": hl.tfloat,
-                "CADD_phred": hl.tfloat,
-                "DANN_score": hl.tfloat,
-                "MetaSVM_score": hl.tfloat,
-                "MetaLR_score": hl.tfloat,
-            },
-        )
-
-        # Annotation ##########################################################
-
-        for i in range(len(params["value"])):
-
-            column = params["column"][i]
-            if "." in column:
-                # if the column name contains '.', assume it is a nested field and extract it accordingly
-                field1, field2 = column.split(".")
-                predictor_col = missense_vars[field1][field2]
-            else:
-                predictor_col = missense_vars[column]
-
-                # determine the appropriate comparison function to use
-            if params["sign"][i] == ">":
-                compare_fn = lambda x, y: x > y
-            elif params["sign"][i] == ">=":
-                compare_fn = lambda x, y: x >= y
-            elif params["sign"][i] == "<":
-                compare_fn = lambda x, y: x < y
-            elif params["sign"][i] == "<=":
-                compare_fn = lambda x, y: x <= y
-            else:
-                raise ValueError(f"Invalid comparison operator: {params['sign'][i]}")
-
-                # create a Boolean column indicating whether the threshold is met
-            threshold_col = compare_fn(predictor_col, hl.literal(params["value"][i]))
-
-            # add the column to the Hail table
-            missense_vars = missense_vars.annotate(
-                **{f"meets_{params['tool'][i]}_{params['name'][i]}_{params['prediction'][i]}": threshold_col}
-            )
-
-            # group the missense_vars by the new annotations
-        annotations = [
-            f"meets_{tool}_{name}_{prediction}" for tool, name, prediction in zip(params["tool"], params["name"], params["prediction"])
-        ]
-
-        # Output ##############################################################
-
-        missense_vars.group_by(
-            "context", "ref", "alt", "methylation_level", "mu", *annotations
-        ).aggregate(
-            variant_count=hl.agg.count(),
-            singleton_count=hl.agg.count_where(missense_vars.AC == 1),
-        ).export(
-            output[0]
-        )
+# TODO: put back (commented out because of formatting issue)
+#   rule missense_by_thresholds:
+#       input:
+#           missense_dbnsfp_parsed,
+#       output:
+#           missense_by_thresholds,
+#       params:
+#           prediction=[
+#               "X",
+#               "X",
+#               "X",
+#               "X",
+#               "X",
+#               "X",
+#               "X",
+#               "HVARprobablyDamaging",
+#               "HVARpossiblyDamaging",
+#               "HDIVprobablyDamaging",
+#               "HDIVpossiblyDamaging",
+#               "Deleterious",
+#               "ProbablyDamaging",
+#               "PossiblyDamaging",
+#               "LikelyDeleterious",
+#               "LikelyDiseaseCausing",
+#               "X",
+#               "D",
+#               "P",
+#               "D",
+#               "H",
+#               "D",
+#               "D",
+#               "D",
+#               "D",
+#               "X",
+#           ],
+#           name=[
+#               "auth", # "Authors"
+#               "auth", # "Authors"
+#               "auth", # "Authors"
+#               "95sens", # "Jagadeesh2016 95% sensitivity"
+#               "95sens", # "Jagadeesh2016 95% sensitivity
+#               "95sens", # "Jagadeesh2016 95% sensitivity"
+#               "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+#               "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+#               "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+#               "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+#               "Annovar", # "Annovar's LJB* (dbNSFP) non-synonymous variants annotation"
+#               "Ensembl",
+#               "Ensembl",
+#               "Ensembl",
+#               "Ensembl",
+#               "Ensembl",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#               "ClinGen",
+#           ],
+#           value=[
+#               0.05,
+#               0.8,
+#               20.0,
+#               10.37,
+#               0.022,
+#               0.49,
+#               0.05,
+#               0.909,
+#               0.447,
+#               0.957,
+#               0.453,
+#               0.05,
+#               0.908,
+#               0.446,
+#               30.0,
+#               0.5,
+#               0.75,
+#               0.049,
+#               0.447,
+#               0.5,
+#               1.935,
+#               -1.51,
+#               -2.49,
+#               0,
+#               0.5,
+#               19.0, # TODO: say "inferred" - what does that mean?
+#           ],
+#           column=[
+#               "SIFT_score",
+#               "Polyphen2_HVAR_score",
+#               "CADD_phred",
+#               "CADD_phred",
+#               "Polyphen2_HVAR_score",
+#               "SIFT_score",
+#               "SIFT_score",
+#               "Polyphen2_HVAR_score",
+#               "Polyphen2_HVAR_score",
+#               "Polyphen2_HDIV_score",
+#               "Polyphen2_HDIV_score",
+#               "SIFT_score",
+#               "Polyphen2_HVAR_score",
+#               "Polyphen2_HVAR_score",
+#               "CADD_phred",
+#               "REVEL_score",
+#               "REVEL_score",
+#               "SIFT_score",
+#               "Polyphen2_HVAR_score",
+#               "MutationTaster_score",
+#               "MutationAssessor_score",
+#               "FATHMM_score",
+#               "PROVEAN_score",
+#               "MetaSVM_score",
+#               "MetaLR_score",
+#               "CADD_phred",
+#           ],
+#           tool=[
+#               "SIFT",
+#               "PolyPhen",
+#               "CADD",
+#               "CADD",
+#               "PolyPhen",
+#               "SIFT",
+#               "SIFT",
+#               "PolyPhen",
+#               "PolyPhen",
+#               "PolyPhen",
+#               "PolyPhen",
+#               "SIFT",
+#               "PolyPhen",
+#               "PolyPhen",
+#               "CADD",
+#               "REVEL",
+#               "REVEL",
+#               "SIFT",
+#               "PolyPhen",
+#               "MutationTaster",
+#               "MutationAssessor",
+#               "FATHMM",
+#               "PROVEAN",
+#               "MetaSVM",
+#               "MetaLR",
+#               "CADD",
+#           ],
+#           sign=[
+#               "<", # TODO: check
+#               ">", # TODO: check
+#               ">", # TODO: check
+#               ">", # TODO: check
+#               ">", # TODO: check
+#               "<", # TODO: check
+#               "<", # TODO: check
+#               ">=",
+#               ">=",
+#               ">=",
+#               ">=",
+#               "<",
+#               ">",
+#               ">",
+#               ">",
+#               ">",
+#               ">",
+#               "<",
+#               ">",
+#               ">",
+#               ">",
+#               "<",
+#               "<",
+#               ">",
+#               ">",
+#               ">",
+#           ]
+#       run:
+#           import hail as hl
+#
+#           # TODO: optimise the type specification part, shouldn't list them all because that it subject to change
+#           missense_vars = hl.import_table(
+#               input[0],
+#               key=["locus", "alleles"],
+#               types={
+#                   "locus": hl.tlocus(),
+#                   "alleles": hl.tarray(hl.tstr),
+#                   "AC": hl.tint32,
+#                   "SIFT_score": hl.tfloat,
+#                   "Polyphen2_HDIV_score": hl.tfloat,
+#                   "Polyphen2_HVAR_score": hl.tfloat,
+#                   "MutationTaster_score": hl.tfloat,
+#                   "MutationAssessor_score": hl.tfloat,
+#                   "FATHMM_score": hl.tfloat,
+#                   "PROVEAN_score": hl.tfloat,
+#                   "VEST4_score": hl.tfloat,
+#                   "MutPred_score": hl.tfloat,
+#                   "MVP_score": hl.tfloat,
+#                   "MPC_score": hl.tfloat,
+#                   "DEOGEN2_score": hl.tfloat,
+#                   "REVEL_score": hl.tfloat,
+#                   "PrimateAI_score": hl.tfloat,
+#                   "CADD_phred": hl.tfloat,
+#                   "DANN_score": hl.tfloat,
+#                   "MetaSVM_score": hl.tfloat,
+#                   "MetaLR_score": hl.tfloat,
+#               },
+#           )
+#
+#           # Annotation ##########################################################
+#
+#           for i in range(len(params["value"])):
+#
+#               column = params["column"][i]
+#               if "." in column:
+#                   # if the column name contains '.', assume it is a nested field and extract it accordingly
+#                   field1, field2 = column.split(".")
+#                   predictor_col = missense_vars[field1][field2]
+#               else:
+#                   predictor_col = missense_vars[column]
+#
+#                   # determine the appropriate comparison function to use
+#               if params["sign"][i] == ">":
+#                   compare_fn = lambda x, y: x > y
+#               elif params["sign"][i] == ">=":
+#                   compare_fn = lambda x, y: x >= y
+#               elif params["sign"][i] == "<":
+#                   compare_fn = lambda x, y: x < y
+#               elif params["sign"][i] == "<=":
+#                   compare_fn = lambda x, y: x <= y
+#               else:
+#                   raise ValueError(f"Invalid comparison operator: {params['sign'][i]}")
+#
+#                   # create a Boolean column indicating whether the threshold is met
+#               threshold_col = compare_fn(predictor_col, hl.literal(params["value"][i]))
+#
+#               # add the column to the Hail table
+#               missense_vars = missense_vars.annotate(
+#                   **{f"meets_{params['tool'][i]}_{params['name'][i]}_{params['prediction'][i]}": threshold_col}
+#               )
+#
+#               # group the missense_vars by the new annotations
+#           annotations = [
+#               f"meets_{tool}_{name}_{prediction}" for tool, name, prediction in zip(params["tool"], params["name"], params["prediction"])
+#           ]
+#
+#           # Output ##############################################################
+#
+#           missense_vars.group_by(
+#               "context", "ref", "alt", "methylation_level", "mu", *annotations
+#           ).aggregate(
+#               variant_count=hl.agg.count(),
+#               singleton_count=hl.agg.count_where(missense_vars.AC == 1),
+#           ).export(
+#               output[0]
+#           )
 
 
 # ClinVar #####################################################################
@@ -896,6 +904,58 @@ rule annotate_clinvar_genomes:
             "SubmitterCategories",
             "PhenotypeList",
             "PhenotypeIDS",
+        ).aggregate(
+            variant_count=hl.agg.count(),
+            singleton_count=hl.agg.count_where(variants.freq[0].AC == 1),
+        ).export(
+            output[0]
+        )
+
+
+# CHD case study ######################################################
+
+rule CHD_VUSs:
+    input:
+        CHD_VUSs,
+    output:
+        gnomAD_CHD_VUSs,
+    run:
+        import hail as hl
+        import numpy as np
+        from preprocessing import preprocessing
+
+        variants = preprocessing(
+            config["exomes_ht_path"],
+            config["context_ht_path"],
+            config["mutation_rates_ht_path"],
+            config["coverage_exomes_ht_path"],
+            {"female": config["female_exomes"], "male": config["male_exomes"]},
+        )
+
+        # Read input lines into an array of strings
+        vuss = np.genfromtxt(input[0], dtype=str, delimiter="\n").tolist()
+
+        # Filter gnomAD variants to only those VUSs that are listed in 'vuss'
+        variants = variants.filter(
+            hl.literal(vuss).contains(
+                hl.str(variants.locus.contig)
+                + " "
+                + hl.str(variants.locus.position)
+                + " "
+                + variants.alleles[1]
+            )
+        )
+
+        variants.group_by(
+            "locus",
+            "context",
+            "ref",
+            "alt",
+            "methylation_level",
+            "mu",
+            "worst_csq",
+            "protein_coding",
+            "coverage",
         ).aggregate(
             variant_count=hl.agg.count(),
             singleton_count=hl.agg.count_where(variants.freq[0].AC == 1),
