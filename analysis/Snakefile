@@ -1,20 +1,214 @@
 import random
 import colorsys
 import itertools
-from snakemake.remote.GS import RemoteProvider
 
-# TODO: put back
-# GS = RemoteProvider()
-
+# TODO: don't need max_combinations etc. if it's not in the paper
 
 ######################################################################
+
+# Whether to join "Benign", "Benign/Likely benign" and "Likely benign" into "All benign" (as well as "Pathogenic", "Pathogenic/Likely pathogenic" and "Likely pathogenic" into "All pathogenic")
+clinvar_remove_likely_categories = True
+
+# Colors and labels for the main functional classes of SNVs
+csq_class_colors = [
+    "#1F77B4",
+    "#FF7F0E",
+    "#2CA02C",
+    "#D62728",
+    "#9467BD",
+    "#8C564B",
+    "#E377C2",
+    "#7F7F7F",
+]
+csq_class_labels = [
+    "Intergenic",
+    "Intron",
+    "5'UTR",
+    "3'UTR",
+    "Synonymous",
+    "Missense",
+    "Essential splice",
+    "Nonsense",
+]
+csq_classes = [
+    "intergenic_variant",
+    "intron_variant",
+    "5_prime_UTR_variant",
+    "3_prime_UTR_variant",
+    "synonymous_variant",
+    "missense_variant",
+    "essential_splice",
+    "stop_gained",
+]
+
+
+review_statuses = [
+    "reviewed by expert panel",
+    "criteria provided, multiple submitters, no conflicts",
+    "criteria provided, single submitter",
+    "criteria provided, conflicting interpretations",
+    "no assertion criteria provided",
+    "no assertion provided",
+]
+review_statuses_labels = [
+    "Expert panel (***)",
+    "2+ Submitters (**)",
+    "1 Submitter (*)",
+    "Conflicts (*)",
+    "No assertion criteria",
+    "No assertion",
+]
+# TODO: make unique?
+review_statuses_colors = csq_class_colors
+
+# Distributions of scores #####################################################
+scores_for_viz = [
+    # Positive-trend scores
+    "REVEL_score",
+    "CADD_phred",
+    "Polyphen2_HVAR_score",
+    "MutPred_score",
+    #   "DANN_score",
+    #   "Polyphen2_HDIV_score",
+    #   "MVP_score",
+    #   "MPC_score",
+    #   "VEST4_score",
+    #   "DEOGEN2_score",
+    #   "MutationAssessor_score",
+    # TODO: check these
+    #   "PrimateAI_score",
+    #   "MutationTaster_score",
+    #   "MetaLR_score",
+    #   "MetaSVM_score",
+]
+scores_for_viz_mirror = [
+    # Negative-trend scores (or unknown trend)
+    "SIFT_score",
+    # "FATHMM_score",
+    # "PROVEAN_score",
+]
+scores_for_viz = scores_for_viz + scores_for_viz_mirror
+n = len(scores_for_viz)
+HSV_tuples = [(x * 1.0 / n, 0.5, 0.5) for x in range(n)]
+RGB_tuples = list(
+    map(lambda x: tuple(int(i * 255) for i in colorsys.hsv_to_rgb(*x)), HSV_tuples)
+)
+scores_for_viz_colors = ["#%02x%02x%02x" % rgb for rgb in RGB_tuples]
+exponential_quantiles = [
+    0.0000,
+    0.5000,
+    0.7500,
+    0.8750,
+    0.9375,
+    0.9688,
+    0.9844,
+    0.9922,
+]
+exponential_bins = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8
+]
+exponential_quantiles_labels = [
+    "100%",
+    "50%",
+    "25%",
+    "12.5%",
+    "6.25%",
+    "3.125%",
+    "1.5625%",
+    "0.78125%"
+]
+
+# Threshold analysis (filters and combinations of filters) ####################
 # Basic filters to use in the analysis
+#     meets_SIFT_auth_X
+#     meets_PolyPhen_auth_X
+#     meets_CADD_auth_X
+#     meets_CADD_95sens_X
+#     meets_PolyPhen_95sens_X
+#     meets_SIFT_95sens_X
+#     meets_SIFT_Annovar_X
+#     meets_PolyPhen_Annovar_HVARprobablyDamaging
+#     meets_PolyPhen_Annovar_HVARpossiblyDamaging
+#     meets_PolyPhen_Annovar_HDIVprobablyDamaging
+#     meets_PolyPhen_Annovar_HDIVpossiblyDamaging
+#     meets_SIFT_Ensembl_Deleterious
+#     meets_PolyPhen_Ensembl_ProbablyDamaging
+#     meets_PolyPhen_Ensembl_PossiblyDamaging
+#     meets_CADD_Ensembl_LikelyDeleterious
+#     meets_REVEL_Ensembl_LikelyDiseaseCausing
+#     meets_REVEL_ClinGen_X
+#     meets_SIFT_ClinGen_D
+#     meets_PolyPhen_ClinGen_P
+#     meets_MutationTaster_ClinGen_D
+#     meets_MutationAssessor_ClinGen_H
+#     meets_FATHMM_ClinGen_D
+#     meets_PROVEAN_ClinGen_D
+#     meets_MetaSVM_ClinGen_D
+#     meets_MetaLR_ClinGen_D
+#     meets_CADD_ClinGen_X
+# Single ClinGen filter and double ClinGen filter winners
+# 1  0.12027902               REVEL & SIFT ClinGen & ClinGen      X & D
+# 2  0.11987982            REVEL & PROVEAN ClinGen & ClinGen      X & D
+# 3  0.11956958   REVEL & MutationAssessor ClinGen & ClinGen      X & H
+# 4  0.11923523           REVEL & PolyPhen ClinGen & ClinGen      X & P
+# 5  0.11857064     REVEL & MutationTaster ClinGen & ClinGen      X & D
+# 6  0.11855359               REVEL & CADD ClinGen & ClinGen      X & X
+# 7  0.11848128                      REVEL           ClinGen          X
+# 8  0.11819072            REVEL & MetaSVM ClinGen & ClinGen      X & D
+# 9  0.11794240             REVEL & MetaLR ClinGen & ClinGen      X & D
+# 10 0.11428948             REVEL & FATHMM ClinGen & ClinGen      X & D
+# 11 0.09588500          PROVEAN & MetaSVM ClinGen & ClinGen      D & D
+# 12 0.09335402             SIFT & MetaSVM ClinGen & ClinGen      D & D
+# 13 0.09261589           PROVEAN & MetaLR ClinGen & ClinGen      D & D
+# 14 0.09235682         PolyPhen & MetaSVM ClinGen & ClinGen      P & D
+# 15 0.09234900 MutationAssessor & MetaSVM ClinGen & ClinGen      H & D
+max_combinations = 2
+select_methods_set = [
+    "REVEL",
+    "MetaSVM",
+    "MetaLR",
+    "PROVEAN",
+    "SIFT",
+    "PolyPhen",
+    "MutationAssessor",
+    "FATHMM",
+    "CADD",
+    "MutationTaster",
+]
+# NOTE: this is needed for changing the ordering in the heatmap
+heatmap_labels_order = [
+    "REVEL",
+    "MetaSVM",
+    "MetaLR",
+    "PROVEAN",
+    "SIFT",
+    "PolyPhen",
+    "MutationAssessor",
+    "FATHMM",
+    "CADD",
+    "MutationTaster",
+]
 annotations_to_use = [
-    "meets_PolyPhen_95sens_X",
-    "meets_REVEL_Ensembl_Likely_disease_causing",
-    "meets_CADD_auth_X",
+    "meets_REVEL_ClinGen_X",
+    "meets_SIFT_ClinGen_D",
+    "meets_PolyPhen_ClinGen_P",
+    "meets_MutationTaster_ClinGen_D",
+    "meets_MutationAssessor_ClinGen_H",
+    "meets_FATHMM_ClinGen_D",
+    "meets_PROVEAN_ClinGen_D",
+    "meets_MetaSVM_ClinGen_D",
+    "meets_MetaLR_ClinGen_D",
+    "meets_CADD_ClinGen_X",
 ]
 ######################################################################
+
 
 # List of threshold sources
 source_labels = [string.split("_")[2] for string in annotations_to_use]
@@ -33,12 +227,81 @@ prediction_labels = prediction_labels + list(
 prediction_labels_fullnames = prediction_labels
 
 # Individual filters and combination filters to use in the analysis
-threshold_filters = annotations_to_use + [
-    "_".join(x) for x in itertools.combinations(annotations_to_use, 2)
-]
+if max_combinations == 1:
+    threshold_filters = annotations_to_use
+if max_combinations == 2:
+    threshold_filters = annotations_to_use + [
+        "_".join(x) for x in itertools.combinations(annotations_to_use, 2)
+    ]
+if max_combinations == 3:
+    threshold_filters = (
+        annotations_to_use
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 2)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 3)]
+    )
+if max_combinations == 4:
+    threshold_filters = (
+        annotations_to_use
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 2)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 3)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 4)]
+    )
+if max_combinations == 5:
+    threshold_filters = (
+        annotations_to_use
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 2)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 3)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 4)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 5)]
+    )
+if max_combinations == 6:
+    threshold_filters = (
+        annotations_to_use
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 2)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 3)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 4)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 5)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 6)]
+    )
+if max_combinations == 7:
+    threshold_filters = (
+        annotations_to_use
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 2)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 3)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 4)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 5)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 6)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 7)]
+    )
+if max_combinations == 8:
+    threshold_filters = (
+        annotations_to_use
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 2)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 3)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 4)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 5)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 6)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 7)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 8)]
+    )
+if max_combinations == 9:
+    threshold_filters = (
+        annotations_to_use
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 2)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 3)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 4)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 5)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 6)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 7)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 8)]
+        + ["_".join(x) for x in itertools.combinations(annotations_to_use, 9)]
+    )
 
-n = len(threshold_filters)
 # Generate a list of n color-blind friendly HEX colors
+if "select_methods_set" in globals():
+    n = len(select_methods_set)
+else:
+    n = len(threshold_filters)
 HSV_tuples = [(x * 1.0 / n, 0.5, 0.5) for x in range(n)]
 RGB_tuples = list(
     map(lambda x: tuple(int(i * 255) for i in colorsys.hsv_to_rgb(*x)), HSV_tuples)
@@ -72,25 +335,62 @@ metrics_set = [
     "DANN_score_decile",
 ]
 
+combine_tables = "combine_tables.R"
+process_missense_by_thresholds = "process_missense_by_thresholds.R"
+join_groups = "join_groups.R"
+values_to_quantile_bins = "values_to_quantile_bins.R"
 calculate_caps = "calculate_caps.R"
 calculate_maps = "calculate_maps.R"
 viz_by_thresholds = "viz_by_thresholds.R"
-viz_scores = "viz_scores.R"
+viz_by_thresholds_heatmap = "viz_by_thresholds_heatmap.R"
+viz_scores = "viz_scores2.R"
 viz_scores_multi = "viz_scores_multi.R"
+missense_by_thresholds_preprocessing = "missense_by_thresholds_preprocessing.R"
 get_clinvar_stats = "clinvar_stats.R"
 filtering = "filtering.R"
+
+###############################################################################
+# Input files #################################################################
+
+if config["gcp"] == False:
+    missense_dbnsfp_parsed = "../files/missense_dbnsfp_parsed.tsv"
+    gnomAD_CHD_VUSs = "../files/gnomAD_CHD_VUSs.tsv"
+    by_csq_unprocessed = "../files/by_csq.tsv"
+    # All SNVs annotated with ClinVar
+    all_clinvar_unprocessed = "../files/all_clinvar_unprocessed.tsv"
+    # Missense variants that satisfy and don't satisfy some of the common deleteriousness thresholds
+    missense_by_thresholds_unprocessed = "../files/missense_by_thresholds_unprocessed.tsv"
+    # All variants annotated with all metrics (dbNSFP)
+    all_metrics = "../files/all_dbnsfp.tsv"
+else:
+    from snakemake.remote.GS import RemoteProvider
+    GS = RemoteProvider()
+    gnomAD_CHD_VUSs = GS.remote(config["gcp_rootdir"] + "gnomAD_CHD_VUSs.tsv")
+    by_csq_unprocessed = GS.remote(config["gcp_rootdir"] + "by_csq.tsv")
+    # All SNVs annotated with ClinVar
+    all_clinvar_unprocessed = GS.remote(config["gcp_rootdir"] + "all_clinvar.tsv")
+    # Missense variants that satisfy and don't satisfy some of the common deleteriousness thresholds
+    missense_by_thresholds_unprocessed = GS.remote(config["gcp_rootdir"] + "missense_by_thresholds.tsv")
+    # All variants annotated with all metrics (dbNSFP)
+    all_metrics = GS.remote(config["gcp_rootdir"] + "all_dbnsfp.tsv")
+    # TODO: the remote is ~200Mb, will take long to download each time! Hence using local copy for now
+    # TODO: consider not using it here and instead doing all the analysis with this file in the "data" part of the pipeline
+    # TODO: note that I decompressed the original missense_dbnsfp_parsed.tsv.bgz using "gunzip -c missense_dbnsfp_parsed.tsv.bgz > missense_dbnsfp_parsed.tsv"
+    missense_dbnsfp_parsed = GS.remote(config["gcp_rootdir"] + "missense_dbnsfp_parsed.tsv.bgz")
+
+###############################################################################
+# CHD VUSs from a case study found in gnomAD
+CHD_VUSs_caps_scores = "CHD_VUSs_caps.tsv"
+CHD_VUSs_compared_w_ClinVar_caps_scores = "CHD_VUSs_compared_w_ClinVar_caps.tsv"
+CHD_VUSs_compared_w_ClinVar_caps_plot = "CHD_VUSs_compared_w_ClinVar_caps.pdf"
+###############################################################################
 
 # All variants grouped by their most severe consequence
 by_csq = "by_csq.tsv"
 
-# TODO: put back
-by_csq_unprocessed = "by_csq_unprocessed.tsv"
-# by_csq_unprocessed = GS.remote(config["gcp_rootdir"] + "by_csq.tsv")
-
 # Synonymous variants grouped by context/mutability (exomes)
 syn_by_context = "syn_by_context.tsv"
 
-# TODO: you may not need this at all! If you do, make everything reproducible, like in CAPS paper
 # Model #######################################################################
 # Synonymous variants with 4 missing contexts added
 syn_by_context_p4 = "../../CAPS/model/phat.tsv"
@@ -100,17 +400,16 @@ syn_by_context_p4_genomes = "../../CAPS/model/phat_genomes.tsv"
 syn_by_context_pdd_genomes = "../../CAPS/model/phat_sim_genomes.tsv"
 
 # ClinVar #####################################################################
-# All SNVs annotated with ClinVar
-
-# TODO: put back
-all_clinvar_unprocessed = "all_clinvar_unprocessed.tsv"
-# all_clinvar_unprocessed = GS.remote(config["gcp_rootdir"] + "all_clinvar.tsv")
-
 all_clinvar = "all_clinvar.tsv"
 clinvar_hc = "clinvar_hc.tsv"  # High confidence set
 # CAPS scores for all SNVs annotated with ClinVar
 caps_clinvar_scores = "all_clinvar_caps.tsv"
 caps_clinvar_hc_scores = "clinvar_hc_caps.tsv"
+caps_clinvar_hc_by_class_scores = "clinvar_hc_by_class_caps.tsv"
+caps_clinvar_by_reviewstatus_scores = "clinvar_by_reviewstatus_caps.tsv"
+caps_clinvar_by_reviewstatus_and_class_scores = (
+    "clinvar_by_reviewstatus_and_class_caps.tsv"
+)
 caps_clinvar_hc_alt_scores = "clinvar_hc_alt_caps.tsv"
 # All variants annotated with ClinVar (MAPS score)
 maps_clinvar_scores = "all_clinvar_maps.tsv"
@@ -125,59 +424,212 @@ clinvar_hc_stats = "clinvar_hc_stats.tex"
 scores2_clinvar_plot = "all_clinvar_scores2.pdf"
 scores2_clinvar_hc_plot = "clinvar_hc_scores2.pdf"
 scores2_clinvar_hc_alt_plot = "clinvar_hc_alt_scores2.pdf"
+clinvar_hc_caps_plot = "clinvar_hc_caps.pdf"
+clinvar_hc_caps_by_class_plot = "clinvar_hc_caps_by_class.pdf"
+clinvar_caps_by_reviewstatus_plot = "clinvar_caps_by_reviewstatus.pdf"
+clinvar_caps_by_reviewstatus_and_class_plot = (
+    "clinvar_caps_by_reviewstatus_and_class.pdf"
+)
 # MAPS scores for SNVs annotated with ClinVar (alternate reference)
 clinvar_maps_alt_plot = "clinvar_maps_alt_plot.pdf"
 clinvar_hc_maps_alt_plot = "clinvar_hc_maps_alt_plot.pdf"
 all_clinvar_benign = "all_clinvar_benign.tsv"
 clinvar_hc_benign = "clinvar_hc_benign.tsv"
 
-# Missense variants that satisfy and don't satisfy some of the common
-# deleteriousness thresholds
-# TODO: use a remote file!
-missense_by_thresholds_unprocessed = "missense_by_thresholds_unprocessed.tsv"
-# missense_by_thresholds_unprocessed = GS.remote(
-#     config["gcp_rootdir"] + "missense_by_thresholds.tsv"
-# )
+# QC-compliant missense variants annotated with pathogenicity scores from dbNSFP with processed scores
+missense_dbnsfp_parsed_processed = "missense_dbnsfp_parsed_processed.tsv"
+
+missense_dbnsfp_exponential_bins = "missense_dbnsfp_exponential_bins.tsv"
+missense_dbnsfp_exponential_tops = "missense_dbnsfp_exponential_tops.tsv"
+missense_dbnsfp_exponential_tops_caps = "missense_dbnsfp_exponential_tops_caps.tsv"
+missense_dbnsfp_exponential_tops_plot = "missense_dbnsfp_exponential_tops_caps.pdf"
+missense_dbnsfp_quartiles = "missense_dbnsfp_quartiles.tsv"
 
 # CAPS scores for groups of missense variants that satisfy and don't
 # satisfy some of the common deleteriousness thresholds
 missense_by_thresholds_plot = "missense_by_thresholds_caps.pdf"
+missense_by_thresholds_heatmap_plot = "missense_by_thresholds_heatmap_caps.pdf"
 # Annotations #################################################################
 # Missense variants that satisfy and don't satisfy some of the common
 # deleteriousness thresholds
 missense_by_thresholds = "missense_by_thresholds.tsv"
-# All variants annotated with all metrics (dbNSFP)
-# all_metrics = GS.remote(config["gcp_rootdir"] + "all_dbnsfp.tsv")
-all_metrics = "all_dbnsfp.tsv"  # TODO: replace with remote
 # CAPS scores for groups of missense variants that satisfy and don't
 # satisfy some of the common deleteriousness thresholds
 missense_by_thresholds_scores = "missense_by_thresholds_caps.tsv"
-# CAPS scores for each group of CADD
-all_cadd_caps_scores = "all_cadd_caps.tsv"
-# CAPS scores for each group of DANN
-all_dann_caps_scores = "all_dann_caps.tsv"
-# Plot of CAPS scores for each group of CADD
-all_cadd_caps_plot = "all_cadd_caps.pdf"
-# Plot of CAPS scores for each group of DANN
-all_dann_caps_plot = "all_dann_caps.pdf"
+
+# CAPS scores of variants satisfying ClinGen's REVEL filter (alone and in combinations)
+REVEL_alone_and_in_combinations = "REVEL_alone_and_in_combinations.pdf"
 
 
 rule all:
     input:
-        #     # Comparison with other metrics
+        missense_by_thresholds_heatmap_plot,
         missense_by_thresholds_plot,
-        # missense_by_thresholds_scores,
-        #     all_cadd_caps_plot,
-        #     all_dann_caps_plot,
-        #     expand(
-        #         "decile_{metric}_CAPS.pdf",
-        #         metric=metrics_set,
-        #     ),
-        #     clinvar_stats,
-        #     clinvar_hc_stats,
-        #     clinvar_hc_maps_alt_plot,
-        #     scores2_clinvar_hc_plot,
-        #     scores2_clinvar_hc_alt_plot,
+        # TODO: remove
+        "caps_increase_deltas_by_chain_length.tsv",
+        expand(
+            "decile_{metric}_CAPS.pdf",
+            metric=metrics_set,
+        ),
+        clinvar_hc_maps_alt_plot,
+        clinvar_maps_alt_plot,
+        scores2_clinvar_hc_plot,
+        scores2_clinvar_hc_alt_plot,
+        clinvar_stats,
+        clinvar_hc_stats,
+        missense_by_thresholds_scores,
+        # Figure 1b
+        REVEL_alone_and_in_combinations,
+        # Figure 2
+        missense_dbnsfp_exponential_tops_plot,
+        # Figure 5
+        clinvar_caps_by_reviewstatus_plot,
+        CHD_VUSs_compared_w_ClinVar_caps_plot,
+        # Figure S2
+        clinvar_caps_by_reviewstatus_and_class_plot,
+        # Figure S3
+        clinvar_hc_caps_plot,
+        # Figure S4
+        clinvar_hc_caps_by_class_plot
+
+
+###############################################################################
+
+rule score_values_to_quartile_bins:
+    input:
+        In=missense_dbnsfp_parsed_processed,
+    output:
+        Out=missense_dbnsfp_quartiles,
+    params:
+        quantiles=[0, 0.25, 0.5, 0.75, 1],
+        # When "True", assume that the input file contains variants
+        # rather than aggregated groups, has "context" and "alleles"
+        # columns and doesn't have the counts columns
+        variants_input=True,
+    script:
+        values_to_quantile_bins
+
+
+rule score_values_to_exponential_bins:
+    input:
+        In=missense_dbnsfp_parsed_processed,
+    output:
+        Out=missense_dbnsfp_exponential_bins,
+    params:
+        quantiles=exponential_quantiles,
+        # When "True", assume that the input file contains variants
+        # rather than aggregated groups, has "context" and "alleles"
+        # columns and doesn't have the counts columns
+        variants_input=True,
+        # TODO: without "NA_omit=True" the 100% exponential group is not one point (all variants) - investigate
+        NA_omit=True,
+        scores_to_include=scores_for_viz,
+    script:
+        values_to_quantile_bins
+
+
+rule analysis_of_supporting_evidence_from_combinations:
+    input:
+        scores=missense_by_thresholds_scores,
+    params:
+        reference="REVEL",
+    output:
+        # TODO: reference by variable name
+        out="caps_increase_deltas_by_chain_length.tsv",
+    script:
+        # TODO: reference by variable name
+        "analysis_of_supporting_evidence_from_combinations.R"
+
+
+# This rule makes all scores have the same upward trend in
+# deleteriousness (at the moment upward for CADD, REVEL, etc., but
+# downward for SIFT, PROVEAN, etc.)
+rule preprocessing_of_dbNSFP_scores:
+    input:
+        In=missense_dbnsfp_parsed,
+    output:
+        Out=missense_dbnsfp_parsed_processed,
+    params:
+        scores_to_include=scores_for_viz,
+        scores_to_adjust=scores_for_viz_mirror,
+        NA_omit=True,
+    script:
+        # TODO: reference by variable name
+        "dbNSFP_scores_preprocessing.R"
+
+
+for score in scores_for_viz:
+
+    rule quantiles_to_top_groups:
+        name:
+            "quantiles_to_top_groups_{score}"
+        input:
+            groups=missense_dbnsfp_exponential_bins,
+        output:
+            joined_groups="missense_dbnsfp_exponential_tops_{score}.tsv",
+        params:
+            variable="{score}",
+        script:
+            join_groups
+
+    rule caps_for_top_groups:
+        name:
+            "caps_for_top_groups_{score}"
+        input:
+            variants="missense_dbnsfp_exponential_tops_{score}.tsv",
+            exp_variants=syn_by_context_p4,
+        output:
+            scores="caps_top_groups_{score}.tsv",
+        params:
+            phat_method="Var",
+            confint_method="CAPS",
+            variable="{score}",
+        script:
+            calculate_caps
+
+
+rule combine_caps_scores_exponential_bins:
+    input:
+        In=expand(
+            "caps_top_groups_{score}.tsv",
+            score=scores_for_viz,
+        ),
+    output:
+        Out=missense_dbnsfp_exponential_tops_caps,
+    script:
+        combine_tables
+
+
+rule visualise_caps_scores_exponential_bins:
+    input:
+        scores=missense_dbnsfp_exponential_tops_caps,
+    output:
+        plot=missense_dbnsfp_exponential_tops_plot,
+    params:
+        point_alpha=0.6,
+        dodge_width=0,
+        add_lines=True,
+        legend_position="top",
+        point_size=1,
+        text_size = 16,
+        xlab_size = 16,
+        color_labels =scores_for_viz,
+        new_color_labels=[x.split('_')[0] for x in scores_for_viz],
+        xlab_labels=exponential_bins,
+        new_xlab_labels=exponential_quantiles_labels,
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+        xlab="Top group",
+        legend_title="",
+        colors=scores_for_viz_colors,
+        aspect_ratio=1.1,
+        xlab_angle=30,
+        xlab_vjust=0.5,
+        xlab_hjust=0.5,
+        reorder_xlab_by_score=False,
+    script:
+        viz_scores
 
 
 ###############################################################################
@@ -212,12 +664,12 @@ for threshold_filter in threshold_filters:
 
     rule missense_by_thresholds_scores:
         name:
-            "missense_by_thresholds_{threshold_filter}"
+            "calculate_caps_for_missense_by_thresholds_{threshold_filter}"
         input:
             variants=missense_by_thresholds,
             exp_variants=syn_by_context_p4,
         output:
-            scores="{threshold_filter}.tsv",
+            scores="caps_missense_{threshold_filter}.tsv",
         params:
             phat_method="Var",
             confint_method="CAPS",
@@ -228,21 +680,23 @@ for threshold_filter in threshold_filters:
 
 rule missense_by_thresholds_processing:
     input:
-        scores=expand("{threshold_filter}.tsv", threshold_filter=threshold_filters),
+        scores=expand(
+            "caps_missense_{threshold_filter}.tsv", threshold_filter=threshold_filters
+        ),
     output:
         joined_scores=missense_by_thresholds_scores,
     script:
-        "process_missense_by_thresholds.R"
+        process_missense_by_thresholds
 
 
 rule viz_by_thresholds:
     input:
         scores=missense_by_thresholds_scores,
     params:
-        # TODO: change color to a different palette?
         score_name="caps",
         lconf="caps_lconf",
         uconf="caps_uconf",
+        legend_position="right",
         # TODO: make this value reproducible!
         gnomAD_missense_level=0.0396,
         aspect_ratio=0.7,
@@ -250,24 +704,80 @@ rule viz_by_thresholds:
         point_alpha=0.75,
         text_size=18,
         xlab="",
-        xlab_angle = 30,
+        xlab_angle=30,
         xlab_vjust=1,
         xlab_hjust=1,
         colors=colors,
-        shapes = shapes,
+        shapes=shapes,
         ############################################################
         # TODO: as of [2023-05-17] doesn't work
+        # prediction_labels = prediction_labels,
+        # new_prediction_labels = prediction_labels_fullnames,
         # source_labels=source_labels,
         # new_source_labels=source_labels_fullnames,
         ############################################################
         # NOTE: only use this when you need a selection; if you need all just skip
         # source_labels_set=["95sens", "auth"],
         # NOTE: only use this when you need a selection; if you need all just skip
-        # method_labels_set=["SIFT", "PolyPhen"],
+        method_labels_set=select_methods_set,
     output:
         plot=missense_by_thresholds_plot,
     script:
         viz_by_thresholds
+
+
+rule REVEL_alone_and_in_combinations:
+    input:
+        scores=missense_by_thresholds_scores,
+    params:
+        score_name="caps",
+        sector_to_highlight = 1,
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+        x_axis="method",
+        color_var="",
+        rotate=True,
+        aspect_ratio=1.2,
+        point_size=1,
+        point_alpha=1,
+        text_size=18,
+        xlab="",
+        xlab_angle=45,
+        xlab_vjust=1,
+        xlab_hjust=1,
+        colors=colors,
+        method_labels_set=[
+            "REVEL",
+            "REVEL & MetaSVM",
+            "REVEL & MetaLR",
+            "REVEL & PROVEAN",
+            "REVEL & SIFT",
+            "REVEL & PolyPhen",
+            "REVEL & MutationAssessor",
+            "REVEL & FATHMM",
+            "REVEL & CADD",
+            "REVEL & MutationTaster",
+        ],
+    output:
+        plot=REVEL_alone_and_in_combinations,
+    script:
+        viz_by_thresholds
+
+
+rule viz_by_thresholds_heatmap:
+    input:
+        scores=missense_by_thresholds_scores,
+    params:
+        xlab="ClinGen filter",
+        ylab="ClinGen filter",
+        labels_order=heatmap_labels_order,
+        legend_title="CAPS",
+        # NOTE: only use this when you need a selection; if you need all just skip
+        method_labels_set=select_methods_set,
+    output:
+        plot=missense_by_thresholds_heatmap_plot,
+    script:
+        viz_by_thresholds_heatmap
 
 
 rule missense_by_thresholds_preprocessing:
@@ -277,10 +787,10 @@ rule missense_by_thresholds_preprocessing:
         processed=missense_by_thresholds,
     params:
         filters=annotations_to_use,
+        max_combinations=max_combinations,
+        NA_omit=True,
     script:
-        "missense_by_thresholds_preprocessing.R"
-
-
+        missense_by_thresholds_preprocessing
 
 
 # TODO: finish
@@ -334,8 +844,10 @@ rule all_metrics_caps_plot:
             "100%",
         ],
         score_name="caps",
-        lconf="caps_lconf",
-        uconf="caps_uconf",
+        lconf = "caps_lconf",
+        uconf = "caps_uconf",
+        colors = ["black"],
+        legend_position = "none",
     script:
         viz_scores
 
@@ -350,6 +862,8 @@ rule process_clinvar_variants:
         protein_coding=True,
         variable="OriginSimple",
         variable_value="germline",
+        add_essential_splice_cat=True,
+        clinvar_remove_likely_categories=clinvar_remove_likely_categories,
     script:
         filtering
 
@@ -510,7 +1024,6 @@ rule scores2_clinvar_hc_plot:
         ylab="Selection score",
         aspect_ratio=0.3,
         text_size=18,
-        xlab_size=18,
         point_size=1,
         xlab_angle=23,
         xlab_hjust=1,
@@ -600,8 +1113,10 @@ rule clinvar_maps_alt_plot:
         xlab_hjust=1,
         reorder_xlab_by_score=False,
         score_name="maps",
-        lconf="maps_lconf",
-        uconf="maps_uconf",
+        lconf = "maps_lconf",
+        uconf = "maps_uconf",
+        colors = ["black"],
+        legend_position = "none",
     script:
         viz_scores
 
@@ -637,8 +1152,51 @@ rule clinvar_hc_maps_alt_plot:
         xlab_hjust=1,
         reorder_xlab_by_score=False,
         score_name="maps",
-        lconf="maps_lconf",
-        uconf="maps_uconf",
+        lconf = "maps_lconf",
+        uconf = "maps_uconf",
+        colors = ["black"],
+        legend_position = "none",
+    script:
+        viz_scores
+
+
+rule clinvar_hc_caps_plot:
+    input:
+        scores=caps_clinvar_hc_scores,
+    output:
+        plot=clinvar_hc_caps_plot,
+    params:
+        aspect_ratio=0.5,
+        xlab_angle=30,
+        NA_omit=True,
+        text_size = 16,
+        xlab_size = 16,
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ],
+        xlab_vjust=1,
+        xlab_hjust=1,
+        reorder_xlab_by_score=False,
+        score_name="caps",
+        lconf = "caps_lconf",
+        uconf = "caps_uconf",
+        colors = ["black"],
+        legend_position = "none"
     script:
         viz_scores
 
@@ -708,3 +1266,394 @@ rule caps_clinvar_hc_alt_scores:
         scores=caps_clinvar_hc_alt_scores,
     script:
         calculate_caps
+
+
+for csq_class in csq_classes:
+
+    rule clinvar_hc_by_class:
+        name:
+            "by_class_clinvar_hc_{csq_class}"
+        input:
+            In=clinvar_hc,
+        output:
+            Out="by_class_clinvar_hc_{csq_class}.tsv",
+        params:
+            variable="worst_csq",
+            variable_value="{csq_class}",
+        script:
+            filtering
+
+    rule caps_for_clinvar_hc_by_class:
+        name:
+            "caps_for_by_class_clinvar_hc_{csq_class}"
+        input:
+            variants="by_class_clinvar_hc_{csq_class}.tsv",
+            exp_variants=syn_by_context_p4,
+        output:
+            scores="caps_by_class_clinvar_hc_{csq_class}.tsv",
+        params:
+            phat_method="Var",
+            confint_method="CAPS",
+            variable="ClinicalSignificance",
+        script:
+            calculate_caps
+
+
+rule combine_caps_scores_clinvar_hc_by_class:
+    input:
+        In=expand(
+            "caps_by_class_clinvar_hc_{csq_class}.tsv",
+            csq_class=csq_classes,
+        ),
+    output:
+        Out=caps_clinvar_hc_by_class_scores,
+    params:
+        labels_to_rename_variable_with=csq_classes,
+    script:
+        combine_tables
+
+
+rule visualise_clinvar_hc_by_class:
+    input:
+        scores=caps_clinvar_hc_by_class_scores,
+    output:
+        plot=clinvar_hc_caps_by_class_plot,
+    params:
+        aspect_ratio=0.7,
+        xlab_angle=45,
+        NA_omit=True,
+        dodge_width=0.9,
+        xlab_vjust=1,
+        xlab_hjust=1,
+        text_size = 16,
+        xlab_size = 16,
+        vert_bars = True,
+        point_alpha=0.8,
+        point_size=0.7,
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ]
+        if clinvar_remove_likely_categories == False
+        else [
+            "All benign",
+            "Uncertain significance",
+            "All pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ]
+        if clinvar_remove_likely_categories == False
+        else [
+            "All benign",
+            "Uncertain significance",
+            "All pathogenic",
+        ],
+        score_name="caps",
+        lconf = "caps_lconf",
+        uconf = "caps_uconf",
+        legend_title="",
+        legend_position="right",
+        color_labels=csq_classes,
+        new_color_labels=csq_class_labels,
+        colors=csq_class_colors,
+        reorder_xlab_by_score=False,
+    script:
+        viz_scores
+
+
+for review_status in review_statuses:
+
+    rule clinvar_by_reviewstatus:
+        name:
+            "clinvar_{review_status}"
+        input:
+            In=all_clinvar,
+        output:
+            Out="clinvar_{review_status}.tsv",
+        params:
+            variable="ReviewStatus",
+            variable_value="{review_status}",
+        script:
+            filtering
+
+    rule caps_for_clinvar_by_reviewstatus:
+        name:
+            "caps_for_clinvar_{review_status}"
+        input:
+            variants="clinvar_{review_status}.tsv",
+            exp_variants=syn_by_context_p4,
+        output:
+            scores="caps_clinvar_{review_status}.tsv",
+        params:
+            phat_method="Var",
+            confint_method="CAPS",
+            variable="ClinicalSignificance",
+        script:
+            calculate_caps
+
+
+rule combine_caps_scores_clinvar_by_reviewstatus:
+    input:
+        In=expand(
+            "caps_clinvar_{review_status}.tsv",
+            review_status=review_statuses,
+        ),
+    output:
+        Out=caps_clinvar_by_reviewstatus_scores,
+    params:
+        labels_to_rename_variable_with=review_statuses,
+    script:
+        combine_tables
+
+
+rule visualise_clinvar_by_reviewstatus:
+    input:
+        scores=caps_clinvar_by_reviewstatus_scores,
+    output:
+        plot=clinvar_caps_by_reviewstatus_plot,
+    params:
+        aspect_ratio=0.7,
+        xlab_angle=0,
+        vert_bars=True,
+        NA_omit=True,
+        dodge_width=0.9,
+        xlab_vjust=0.5,
+        xlab_hjust=0.5,
+        point_alpha=0.8,
+        point_size=0.7,
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ]
+        if clinvar_remove_likely_categories == False
+        else [
+            "All benign",
+            "Uncertain significance",
+            "All pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ]
+        if clinvar_remove_likely_categories == False
+        else [
+            "Benign",
+            "VUS",
+            "Pathogenic",
+        ],
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+        legend_title="",
+        legend_position="right",
+        color_labels=review_statuses,
+        new_color_labels=review_statuses_labels,
+        colors=review_statuses_colors,
+        reorder_xlab_by_score=False,
+    script:
+        viz_scores
+
+
+for review_status in review_statuses:
+
+    for csq_class in csq_classes:
+
+        rule clinvar_by_reviewstatus_and_class:
+            name:
+                "2_clinvar_{review_status}_and_{csq_class}"
+            input:
+                In=all_clinvar,
+            output:
+                Out="2_clinvar_{review_status}_and_{csq_class}.tsv",
+            params:
+                variable="ReviewStatus",
+                variable_value="{review_status}",
+                variable2="worst_csq",
+                variable_value2="{csq_class}",
+            script:
+                filtering
+
+        rule caps_for_clinvar_by_reviewstatus_and_class:
+            name:
+                "2_caps_for_clinvar_{review_status}_and_{csq_class}"
+            input:
+                variants="2_clinvar_{review_status}_and_{csq_class}.tsv",
+                exp_variants=syn_by_context_p4,
+            output:
+                scores="2_caps_clinvar_{review_status}_and_{csq_class}.tsv",
+            params:
+                phat_method="Var",
+                confint_method="CAPS",
+                variable="ClinicalSignificance",
+            script:
+                calculate_caps
+
+
+rule combine_caps_scores_clinvar_by_reviewstatus_and_class:
+    input:
+        In=expand(
+            "2_caps_clinvar_{review_status}_and_{csq_class}.tsv",
+            review_status=review_statuses,
+            csq_class=csq_classes,
+        ),
+    output:
+        Out=caps_clinvar_by_reviewstatus_and_class_scores,
+    params:
+        labels_to_rename_variable_with=expand(
+            "{review_status}+{csq_class}",
+            review_status=review_statuses,
+            csq_class=csq_classes,
+        ),
+    script:
+        combine_tables
+
+
+# TODO: finish
+rule visualise_clinvar_by_reviewstatus_and_class:
+    input:
+        scores=caps_clinvar_by_reviewstatus_and_class_scores,
+    output:
+        plot=clinvar_caps_by_reviewstatus_and_class_plot,
+    params:
+        aspect_ratio=0.7,
+        xlab_angle=90,
+        vert_bars=True,
+        NA_omit=True,
+        dodge_width=0.9,
+        xlab_vjust=0.5,
+        xlab_hjust=0.5,
+        point_alpha=0.8,
+        point_size=0.7,
+        text_size = 16,
+        xlab_size = 16,
+        xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ]
+        if clinvar_remove_likely_categories == False
+        else [
+            "All benign",
+            "Uncertain significance",
+            "All pathogenic",
+        ],
+        new_xlab_labels=[
+            "Benign",
+            "Benign/Likely benign",
+            "Likely benign",
+            "Uncertain significance",
+            "Likely pathogenic",
+            "Pathogenic/Likely pathogenic",
+            "Pathogenic",
+        ]
+        if clinvar_remove_likely_categories == False
+        else [
+            "B",
+            "VUS",
+            "P",
+        ],
+        score_name="caps",
+        lconf = "caps_lconf",
+        uconf = "caps_uconf",
+        legend_title="",
+        legend_position="right",
+        variable2_sep="\\+",
+        variable2_swap=False,
+        variable2_labels = csq_classes,
+        new_variable2_labels = csq_class_labels,
+        color_labels=review_statuses,
+        new_color_labels=review_statuses_labels,
+        colors=review_statuses_colors,
+        reorder_xlab_by_score=False,
+    script:
+        viz_scores
+
+
+# CHD case study ##############################################################
+
+# TODO: add QC filtering (e.g. coverage) for "gnomAD_CHD_VUSs"?
+
+rule CHD_VUSs_caps_scores:
+    input:
+        variants=gnomAD_CHD_VUSs,
+        exp_variants=syn_by_context_p4,
+    params:
+        phat_method="Var",
+        confint_method="CAPS",
+        variable="worst_csq",
+    output:
+        scores=CHD_VUSs_caps_scores,
+    script:
+        calculate_caps
+
+
+rule combine_CHD_VUSs_with_ClinVar:
+    input:
+        In=[CHD_VUSs_caps_scores, caps_clinvar_by_reviewstatus_scores],
+    output:
+        Out=CHD_VUSs_compared_w_ClinVar_caps_scores,
+    script:
+        combine_tables
+
+rule CHD_VUSs_compared:
+    input:
+        scores=CHD_VUSs_compared_w_ClinVar_caps_scores
+    output:
+        plot=CHD_VUSs_compared_w_ClinVar_caps_plot,
+    params:
+        aspect_ratio=0.7,
+        sector_to_highlight = 4,
+        xlab_angle=0,
+        vert_bars=True,
+        NA_omit=True,
+        dodge_width=0.9,
+        xlab_vjust=0.5,
+        xlab_hjust=0.5,
+        point_alpha=0.8,
+        point_size=0.7,
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+        legend_title="",
+        legend_position="right",
+        text_size=15,
+        xlab_size=11,
+        reorder_xlab_by_score=False,
+        xlab_labels=[
+            "All benign",
+            "Uncertain significance",
+            "All pathogenic",
+            "missense_variant",
+        ],
+        new_xlab_labels=["Benign", "VUSs", "Pathogenic", "Prioritised\nCHD VUSs"],
+        color_labels=review_statuses + ["worst_csq"],
+        new_color_labels=review_statuses_labels + ["VCCRI CHD expert panel"],
+        colors=review_statuses_colors + ["#000000"],
+    script:
+        viz_scores
