@@ -6,7 +6,9 @@ import itertools
 
 ######################################################################
 
-# Whether to join "Benign", "Benign/Likely benign" and "Likely benign" into "All benign" (as well as "Pathogenic", "Pathogenic/Likely pathogenic" and "Likely pathogenic" into "All pathogenic")
+# Whether to join "Benign", "Benign/Likely benign" and "Likely benign"
+# into "All benign" (as well as "Pathogenic", "Pathogenic/Likely
+# pathogenic" and "Likely pathogenic" into "All pathogenic")
 clinvar_remove_likely_categories = True
 
 # Colors and labels for the main functional classes of SNVs
@@ -104,16 +106,7 @@ exponential_quantiles = [
     0.9844,
     0.9922,
 ]
-exponential_bins = [
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-    7,
-    8
-]
+exponential_bins = [1, 2, 3, 4, 5, 6, 7, 8]
 exponential_quantiles_labels = [
     "100%",
     "50%",
@@ -122,7 +115,7 @@ exponential_quantiles_labels = [
     "6.25%",
     "3.125%",
     "1.5625%",
-    "0.78125%"
+    "0.78125%",
 ]
 
 # Threshold analysis (filters and combinations of filters) ####################
@@ -359,24 +352,27 @@ if config["gcp"] == False:
     # All SNVs annotated with ClinVar
     all_clinvar_unprocessed = "../files/all_clinvar_unprocessed.tsv"
     # Missense variants that satisfy and don't satisfy some of the common deleteriousness thresholds
-    missense_by_thresholds_unprocessed = "../files/missense_by_thresholds_unprocessed.tsv"
-    # All variants annotated with all metrics (dbNSFP)
-    all_metrics = "../files/all_dbnsfp.tsv"
+    missense_by_thresholds_unprocessed = (
+        "../files/missense_by_thresholds_unprocessed.tsv"
+    )
 else:
     from snakemake.remote.GS import RemoteProvider
+
     GS = RemoteProvider()
     gnomAD_CHD_VUSs = GS.remote(config["gcp_rootdir"] + "gnomAD_CHD_VUSs.tsv")
     by_csq_unprocessed = GS.remote(config["gcp_rootdir"] + "by_csq.tsv")
     # All SNVs annotated with ClinVar
     all_clinvar_unprocessed = GS.remote(config["gcp_rootdir"] + "all_clinvar.tsv")
     # Missense variants that satisfy and don't satisfy some of the common deleteriousness thresholds
-    missense_by_thresholds_unprocessed = GS.remote(config["gcp_rootdir"] + "missense_by_thresholds.tsv")
-    # All variants annotated with all metrics (dbNSFP)
-    all_metrics = GS.remote(config["gcp_rootdir"] + "all_dbnsfp.tsv")
+    missense_by_thresholds_unprocessed = GS.remote(
+        config["gcp_rootdir"] + "missense_by_thresholds.tsv"
+    )
     # TODO: the remote is ~200Mb, will take long to download each time! Hence using local copy for now
     # TODO: consider not using it here and instead doing all the analysis with this file in the "data" part of the pipeline
     # TODO: note that I decompressed the original missense_dbnsfp_parsed.tsv.bgz using "gunzip -c missense_dbnsfp_parsed.tsv.bgz > missense_dbnsfp_parsed.tsv"
-    missense_dbnsfp_parsed = GS.remote(config["gcp_rootdir"] + "missense_dbnsfp_parsed.tsv.bgz")
+    missense_dbnsfp_parsed = GS.remote(
+        config["gcp_rootdir"] + "missense_dbnsfp_parsed.tsv.bgz"
+    )
 
 ###############################################################################
 # CHD VUSs from a case study found in gnomAD
@@ -463,37 +459,38 @@ REVEL_alone_and_in_combinations = "REVEL_alone_and_in_combinations.pdf"
 
 rule all:
     input:
-        missense_by_thresholds_heatmap_plot,
-        missense_by_thresholds_plot,
-        # TODO: remove
-        "caps_increase_deltas_by_chain_length.tsv",
-        expand(
-            "decile_{metric}_CAPS.pdf",
-            metric=metrics_set,
-        ),
-        clinvar_hc_maps_alt_plot,
-        clinvar_maps_alt_plot,
-        scores2_clinvar_hc_plot,
-        scores2_clinvar_hc_alt_plot,
-        clinvar_stats,
-        clinvar_hc_stats,
-        missense_by_thresholds_scores,
-        # Figure 1b
-        REVEL_alone_and_in_combinations,
-        # Figure 2
+        #    missense_by_thresholds_heatmap_plot,
+        #    missense_by_thresholds_plot,
+        #    # TODO: remove
+        #    "caps_increase_deltas_by_chain_length.tsv",
+        #    expand(
+        #        "decile_{metric}_CAPS.pdf",
+        #        metric=metrics_set,
+        #    ),
+        #    clinvar_hc_maps_alt_plot,
+        #    clinvar_maps_alt_plot,
+        #    scores2_clinvar_hc_plot,
+        #    scores2_clinvar_hc_alt_plot,
+        #    clinvar_stats,
+        #    clinvar_hc_stats,
+        #    missense_by_thresholds_scores,
+        #    # Figure 1b
+        #    REVEL_alone_and_in_combinations,
+        #    # Figure 2
         missense_dbnsfp_exponential_tops_plot,
-        # Figure 5
-        clinvar_caps_by_reviewstatus_plot,
-        CHD_VUSs_compared_w_ClinVar_caps_plot,
-        # Figure S2
-        clinvar_caps_by_reviewstatus_and_class_plot,
-        # Figure S3
-        clinvar_hc_caps_plot,
-        # Figure S4
-        clinvar_hc_caps_by_class_plot
+        #    # Figure 5
+        #    clinvar_caps_by_reviewstatus_plot,
+        #    CHD_VUSs_compared_w_ClinVar_caps_plot,
+        #    # Figure S2
+        #    clinvar_caps_by_reviewstatus_and_class_plot,
+        #    # Figure S3
+        #    clinvar_hc_caps_plot,
+        #    # Figure S4
+        #    clinvar_hc_caps_by_class_plot,
 
 
 ###############################################################################
+
 
 rule score_values_to_quartile_bins:
     input:
@@ -517,13 +514,12 @@ rule score_values_to_exponential_bins:
         Out=missense_dbnsfp_exponential_bins,
     params:
         quantiles=exponential_quantiles,
+        NA_omit=True,
+        scores_to_include=scores_for_viz,
         # When "True", assume that the input file contains variants
         # rather than aggregated groups, has "context" and "alleles"
         # columns and doesn't have the counts columns
         variants_input=True,
-        # TODO: without "NA_omit=True" the 100% exponential group is not one point (all variants) - investigate
-        NA_omit=True,
-        scores_to_include=scores_for_viz,
     script:
         values_to_quantile_bins
 
@@ -611,10 +607,10 @@ rule visualise_caps_scores_exponential_bins:
         add_lines=True,
         legend_position="top",
         point_size=1,
-        text_size = 16,
-        xlab_size = 16,
-        color_labels =scores_for_viz,
-        new_color_labels=[x.split('_')[0] for x in scores_for_viz],
+        text_size=16,
+        xlab_size=16,
+        color_labels=scores_for_viz,
+        new_color_labels=[x.split("_")[0] for x in scores_for_viz],
         xlab_labels=exponential_bins,
         new_xlab_labels=exponential_quantiles_labels,
         score_name="caps",
@@ -731,7 +727,7 @@ rule REVEL_alone_and_in_combinations:
         scores=missense_by_thresholds_scores,
     params:
         score_name="caps",
-        sector_to_highlight = 1,
+        sector_to_highlight=1,
         lconf="caps_lconf",
         uconf="caps_uconf",
         x_axis="method",
@@ -791,65 +787,6 @@ rule missense_by_thresholds_preprocessing:
         NA_omit=True,
     script:
         missense_by_thresholds_preprocessing
-
-
-# TODO: finish
-rule all_metrics_caps_scores:
-    input:
-        variants=all_metrics,
-        exp_variants=syn_by_context_p4,
-    params:
-        phat_method="Var",
-        confint_method="CAPS",
-        variable=expand(
-            "{metric}",
-            metric=metrics_set,
-        ),
-    output:
-        scores=expand(
-            "decile_{metric}_CAPS.tsv",
-            metric=metrics_set,
-        ),
-    script:
-        calculate_caps
-
-
-# TODO: finish
-rule all_metrics_caps_plot:
-    input:
-        scores="decile_{metric}_CAPS.tsv",
-    output:
-        plot="decile_{metric}_CAPS.pdf",
-    params:
-        aspect_ratio=0.2,
-        xlab=expand(
-            "{metric}",
-            metric=metrics_set,
-        ),
-        xlab_angle=45,
-        xlab_vjust=1,
-        xlab_hjust=1,
-        reorder_xlab_by_score=False,
-        xlab_labels=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-        new_xlab_labels=[
-            "10%",
-            "20%",
-            "30%",
-            "40%",
-            "50%",
-            "60%",
-            "70%",
-            "80%",
-            "90%",
-            "100%",
-        ],
-        score_name="caps",
-        lconf = "caps_lconf",
-        uconf = "caps_uconf",
-        colors = ["black"],
-        legend_position = "none",
-    script:
-        viz_scores
 
 
 rule process_clinvar_variants:
@@ -1113,10 +1050,10 @@ rule clinvar_maps_alt_plot:
         xlab_hjust=1,
         reorder_xlab_by_score=False,
         score_name="maps",
-        lconf = "maps_lconf",
-        uconf = "maps_uconf",
-        colors = ["black"],
-        legend_position = "none",
+        lconf="maps_lconf",
+        uconf="maps_uconf",
+        colors=["black"],
+        legend_position="none",
     script:
         viz_scores
 
@@ -1152,10 +1089,10 @@ rule clinvar_hc_maps_alt_plot:
         xlab_hjust=1,
         reorder_xlab_by_score=False,
         score_name="maps",
-        lconf = "maps_lconf",
-        uconf = "maps_uconf",
-        colors = ["black"],
-        legend_position = "none",
+        lconf="maps_lconf",
+        uconf="maps_uconf",
+        colors=["black"],
+        legend_position="none",
     script:
         viz_scores
 
@@ -1169,8 +1106,8 @@ rule clinvar_hc_caps_plot:
         aspect_ratio=0.5,
         xlab_angle=30,
         NA_omit=True,
-        text_size = 16,
-        xlab_size = 16,
+        text_size=16,
+        xlab_size=16,
         xlab_labels=[
             "Benign",
             "Benign/Likely benign",
@@ -1193,10 +1130,10 @@ rule clinvar_hc_caps_plot:
         xlab_hjust=1,
         reorder_xlab_by_score=False,
         score_name="caps",
-        lconf = "caps_lconf",
-        uconf = "caps_uconf",
-        colors = ["black"],
-        legend_position = "none"
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+        colors=["black"],
+        legend_position="none",
     script:
         viz_scores
 
@@ -1325,9 +1262,9 @@ rule visualise_clinvar_hc_by_class:
         dodge_width=0.9,
         xlab_vjust=1,
         xlab_hjust=1,
-        text_size = 16,
-        xlab_size = 16,
-        vert_bars = True,
+        text_size=16,
+        xlab_size=16,
+        vert_bars=True,
         point_alpha=0.8,
         point_size=0.7,
         xlab_labels=[
@@ -1361,8 +1298,8 @@ rule visualise_clinvar_hc_by_class:
             "All pathogenic",
         ],
         score_name="caps",
-        lconf = "caps_lconf",
-        uconf = "caps_uconf",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
         legend_title="",
         legend_position="right",
         color_labels=csq_classes,
@@ -1546,8 +1483,8 @@ rule visualise_clinvar_by_reviewstatus_and_class:
         xlab_hjust=0.5,
         point_alpha=0.8,
         point_size=0.7,
-        text_size = 16,
-        xlab_size = 16,
+        text_size=16,
+        xlab_size=16,
         xlab_labels=[
             "Benign",
             "Benign/Likely benign",
@@ -1579,14 +1516,14 @@ rule visualise_clinvar_by_reviewstatus_and_class:
             "P",
         ],
         score_name="caps",
-        lconf = "caps_lconf",
-        uconf = "caps_uconf",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
         legend_title="",
         legend_position="right",
         variable2_sep="\\+",
         variable2_swap=False,
-        variable2_labels = csq_classes,
-        new_variable2_labels = csq_class_labels,
+        variable2_labels=csq_classes,
+        new_variable2_labels=csq_class_labels,
         color_labels=review_statuses,
         new_color_labels=review_statuses_labels,
         colors=review_statuses_colors,
@@ -1598,6 +1535,7 @@ rule visualise_clinvar_by_reviewstatus_and_class:
 # CHD case study ##############################################################
 
 # TODO: add QC filtering (e.g. coverage) for "gnomAD_CHD_VUSs"?
+
 
 rule CHD_VUSs_caps_scores:
     input:
@@ -1621,14 +1559,15 @@ rule combine_CHD_VUSs_with_ClinVar:
     script:
         combine_tables
 
+
 rule CHD_VUSs_compared:
     input:
-        scores=CHD_VUSs_compared_w_ClinVar_caps_scores
+        scores=CHD_VUSs_compared_w_ClinVar_caps_scores,
     output:
         plot=CHD_VUSs_compared_w_ClinVar_caps_plot,
     params:
         aspect_ratio=0.7,
-        sector_to_highlight = 4,
+        sector_to_highlight=4,
         xlab_angle=0,
         vert_bars=True,
         NA_omit=True,
