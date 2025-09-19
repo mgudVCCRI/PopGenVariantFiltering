@@ -1,8 +1,11 @@
+####################################
+#  !!! Navigate to "rule all" !!!  #
+####################################
+
+
 import random
 import colorsys
 import itertools
-
-# TODO: don't need max_combinations etc. if it's not in the paper
 
 ######################################################################
 
@@ -60,7 +63,6 @@ review_statuses_labels = [
     "No assertion criteria",
     "No assertion",
 ]
-# TODO: make unique?
 review_statuses_colors = csq_class_colors
 
 # Distributions of scores #####################################################
@@ -77,7 +79,7 @@ scores_for_viz = [
     #   "VEST4_score",
     #   "DEOGEN2_score",
     #   "MutationAssessor_score",
-    # TODO: check these
+    #
     #   "PrimateAI_score",
     #   "MutationTaster_score",
     #   "MetaLR_score",
@@ -162,7 +164,7 @@ exponential_quantiles_labels = [
 # 13 0.09261589           PROVEAN & MetaLR ClinGen & ClinGen      D & D
 # 14 0.09235682         PolyPhen & MetaSVM ClinGen & ClinGen      P & D
 # 15 0.09234900 MutationAssessor & MetaSVM ClinGen & ClinGen      H & D
-max_combinations = 2
+
 select_methods_set = [
     "REVEL",
     "MetaSVM",
@@ -188,35 +190,59 @@ heatmap_labels_order = [
     "CADD",
     "MutationTaster",
 ]
-annotations_to_use = [
-    "meets_REVEL_ClinGen_X",
-    "meets_SIFT_ClinGen_D",
-    "meets_PolyPhen_ClinGen_P",
-    "meets_MutationTaster_ClinGen_D",
-    "meets_MutationAssessor_ClinGen_H",
-    "meets_FATHMM_ClinGen_D",
-    "meets_PROVEAN_ClinGen_D",
-    "meets_MetaSVM_ClinGen_D",
-    "meets_MetaLR_ClinGen_D",
-    "meets_CADD_ClinGen_X",
-]
+
+# NOTE: This is only for figures 2, 3 and 5
+figure=2
+if figure==2:
+    max_combinations = 3
+    annotations_to_use = [
+            "meets_SIFT_auth_X",
+            "meets_PolyPhen_auth_X",
+            "meets_CADD_auth_X",
+            "meets_CADD_95sens_X",
+            "meets_PolyPhen_95sens_X",
+            "meets_SIFT_95sens_X",
+        ]
+if figure==3:
+    max_combinations = 2
+    annotations_to_use = [
+            "meets_REVEL_ClinGen_X",
+            "meets_SIFT_ClinGen_D",
+            "meets_PolyPhen_ClinGen_P",
+            "meets_MutationTaster_ClinGen_D",
+            "meets_MutationAssessor_ClinGen_H",
+            "meets_FATHMM_ClinGen_D",
+            "meets_PROVEAN_ClinGen_D",
+            "meets_MetaSVM_ClinGen_D",
+            "meets_MetaLR_ClinGen_D",
+            "meets_CADD_ClinGen_X",
+        ]
+if figure==5:
+    max_combinations = 1
+    annotations_to_use = [
+            "meets_REVEL_ClinGen_X",
+            "meets_SIFT_ClinGen_D",
+            "meets_PolyPhen_ClinGen_P",
+            "meets_MutationTaster_ClinGen_D",
+            "meets_MutationAssessor_ClinGen_H",
+            "meets_FATHMM_ClinGen_D",
+            "meets_PROVEAN_ClinGen_D",
+            "meets_MetaSVM_ClinGen_D",
+            "meets_MetaLR_ClinGen_D",
+            "meets_CADD_ClinGen_X",
+        ]
+
 ######################################################################
 
 
 # List of threshold sources
 source_labels = [string.split("_")[2] for string in annotations_to_use]
-source_labels = source_labels + list(
-    map(" & ".join, itertools.permutations(source_labels))
-)
-# TODO: need to prettify the labels here, so that it's "Default" instead of "auth", etc.
+source_labels = source_labels + list(map(" & ".join, itertools.permutations(source_labels)))
 source_labels_fullnames = source_labels
 
 # List of threshold predictions
 prediction_labels = [string.split("_")[3] for string in annotations_to_use]
-prediction_labels = prediction_labels + list(
-    map(" & ".join, itertools.permutations(prediction_labels))
-)
-# TODO: need to prettify the labels here
+prediction_labels = prediction_labels + list(map(" & ".join, itertools.permutations(prediction_labels)))
 prediction_labels_fullnames = prediction_labels
 
 # Individual filters and combination filters to use in the analysis
@@ -367,9 +393,9 @@ else:
     missense_by_thresholds_unprocessed = GS.remote(
         config["gcp_rootdir"] + "missense_by_thresholds.tsv"
     )
-    # TODO: the remote is ~200Mb, will take long to download each time! Hence using local copy for now
-    # TODO: consider not using it here and instead doing all the analysis with this file in the "data" part of the pipeline
-    # TODO: note that I decompressed the original missense_dbnsfp_parsed.tsv.bgz using "gunzip -c missense_dbnsfp_parsed.tsv.bgz > missense_dbnsfp_parsed.tsv"
+    # NOTE: the remote is ~200Mb, will take long to download each time! Hence using local copy
+    # NOTE: consider not using it here and instead doing all the analysis with this file in the "data" part of the pipeline
+    # NOTE: decompressed the original missense_dbnsfp_parsed.tsv.bgz using "gunzip -c missense_dbnsfp_parsed.tsv.bgz > missense_dbnsfp_parsed.tsv"
     missense_dbnsfp_parsed = GS.remote(
         config["gcp_rootdir"] + "missense_dbnsfp_parsed.tsv.bgz"
     )
@@ -444,6 +470,8 @@ missense_dbnsfp_quartiles = "missense_dbnsfp_quartiles.tsv"
 # CAPS scores for groups of missense variants that satisfy and don't
 # satisfy some of the common deleteriousness thresholds
 missense_by_thresholds_plot = "missense_by_thresholds_caps.pdf"
+missense_by_thresholds_plot_figure2 = "missense_by_thresholds_caps_figure2.pdf"
+missense_by_thresholds_plot_figure5 = "missense_by_thresholds_caps_figure5.pdf"
 missense_by_thresholds_heatmap_plot = "missense_by_thresholds_heatmap_caps.pdf"
 # Annotations #################################################################
 # Missense variants that satisfy and don't satisfy some of the common
@@ -456,17 +484,16 @@ missense_by_thresholds_scores = "missense_by_thresholds_caps.tsv"
 # CAPS scores of variants satisfying ClinGen's REVEL filter (alone and in combinations)
 REVEL_alone_and_in_combinations = "REVEL_alone_and_in_combinations.pdf"
 
-
+# NOTE: For figures 2, 3 and 5, set the "figure" variable above to 2,
+# 3 or 5 first (i.e. "figure=5")
 rule all:
     input:
-        #    missense_by_thresholds_heatmap_plot,
-        #    missense_by_thresholds_plot,
-        #    # TODO: remove
-        #    "caps_increase_deltas_by_chain_length.tsv",
-        #    expand(
-        #        "decile_{metric}_CAPS.pdf",
-        #        metric=metrics_set,
-        #    ),
+        missense_dbnsfp_exponential_tops_plot,               # Figure 1
+        # missense_by_thresholds_plot_figure2,               # Figure 2
+        # missense_by_thresholds_heatmap_plot,               # Figure 3a
+        # REVEL_alone_and_in_combinations,                   # Figure 3b
+        CHD_VUSs_compared_w_ClinVar_caps_plot,               # Figure 4
+        # missense_by_thresholds_plot_figure5,               # Figure 5
         #    clinvar_hc_maps_alt_plot,
         #    clinvar_maps_alt_plot,
         #    scores2_clinvar_hc_plot,
@@ -474,19 +501,15 @@ rule all:
         #    clinvar_stats,
         #    clinvar_hc_stats,
         #    missense_by_thresholds_scores,
-        #    # Figure 1b
-        #    REVEL_alone_and_in_combinations,
-        #    # Figure 2
-        missense_dbnsfp_exponential_tops_plot,
-        #    # Figure 5
         #    clinvar_caps_by_reviewstatus_plot,
-        #    CHD_VUSs_compared_w_ClinVar_caps_plot,
-        #    # Figure S2
         #    clinvar_caps_by_reviewstatus_and_class_plot,
-        #    # Figure S3
         #    clinvar_hc_caps_plot,
-        #    # Figure S4
         #    clinvar_hc_caps_by_class_plot,
+        #    "caps_increase_deltas_by_chain_length.tsv",
+        #    expand(
+        #        "decile_{metric}_CAPS.pdf",
+        #        metric=metrics_set,
+        #    ),
 
 
 ###############################################################################
@@ -514,7 +537,6 @@ rule score_values_to_exponential_bins:
         Out=missense_dbnsfp_exponential_bins,
     params:
         quantiles=exponential_quantiles,
-        NA_omit=True,
         scores_to_include=scores_for_viz,
         # When "True", assume that the input file contains variants
         # rather than aggregated groups, has "context" and "alleles"
@@ -522,7 +544,6 @@ rule score_values_to_exponential_bins:
         variants_input=True,
     script:
         values_to_quantile_bins
-
 
 rule analysis_of_supporting_evidence_from_combinations:
     input:
@@ -619,7 +640,8 @@ rule visualise_caps_scores_exponential_bins:
         xlab="Top group",
         legend_title="",
         colors=scores_for_viz_colors,
-        aspect_ratio=1.1,
+        aspect_ratio=0.8,
+        xlim_breaks = exponential_quantiles_labels[0:7],
         xlab_angle=30,
         xlab_vjust=0.5,
         xlab_hjust=0.5,
@@ -685,7 +707,42 @@ rule missense_by_thresholds_processing:
         process_missense_by_thresholds
 
 
-rule viz_by_thresholds:
+rule viz_by_thresholds_figure2:
+    input:
+        scores=missense_by_thresholds_scores,
+    params:
+        score_name="caps",
+        lconf="caps_lconf",
+        uconf="caps_uconf",
+        legend_position="top",
+        # TODO: make this value reproducible!
+        gnomAD_missense_level=0.0396,
+        aspect_ratio=0.6,
+        point_size=0.8,
+        point_alpha=0.75,
+        text_size=18,
+        xlab="",
+        xlab_angle=0,
+        xlab_vjust=0.5,
+        xlab_hjust=0.5,
+        colors=['#723f7f', '#727f3f', '#3f7f59']+["black"],
+        shapes=shapes,
+        ############################################################
+        source_labels=["95sens", "auth", "95sens & 95sens & 95sens","auth & auth & auth"],
+        new_source_labels=["\"95% sensitivity\" thresholds\n(less stringent)", "\"Established\" thresholds\n(more stringent)", "\"95% sensitivity\" thresholds\n(less stringent)","\"Established\" thresholds\n(more stringent)"],
+        ############################################################
+        # NOTE: only use this when you need a selection; if you need all just skip
+        source_labels_set=["95sens", "auth", "95sens & 95sens & 95sens","auth & auth & auth"],
+        # NOTE: only use this when you need a selection; if you need all just skip
+        method_labels_set=["SIFT","CADD","PolyPhen","CADD & PolyPhen & SIFT","SIFT & PolyPhen & CADD"],
+        method_labels=["SIFT","CADD","PolyPhen","CADD & PolyPhen & SIFT","SIFT & PolyPhen & CADD"],
+        new_method_labels=["SIFT","CADD","Polyphen2","All 3","All 3"]
+    output:
+        plot=missense_by_thresholds_plot_figure2,
+    script:
+        viz_by_thresholds
+
+rule viz_by_thresholds_figure5:
     input:
         scores=missense_by_thresholds_scores,
     params:
@@ -700,24 +757,19 @@ rule viz_by_thresholds:
         point_alpha=0.75,
         text_size=18,
         xlab="",
-        xlab_angle=30,
-        xlab_vjust=1,
+        xlab_angle=0,
+        xlab_vjust=0.5,
         xlab_hjust=1,
-        colors=colors,
+        colors=["#009E73","#FFA500","#56B4E9"],
+        swap_axes=True,
         shapes=shapes,
         ############################################################
-        # TODO: as of [2023-05-17] doesn't work
-        # prediction_labels = prediction_labels,
-        # new_prediction_labels = prediction_labels_fullnames,
-        # source_labels=source_labels,
-        # new_source_labels=source_labels_fullnames,
+        prediction_labels = ["P","D","H"],
+        new_prediction_labels = ["P","D","H"],
         ############################################################
-        # NOTE: only use this when you need a selection; if you need all just skip
-        # source_labels_set=["95sens", "auth"],
-        # NOTE: only use this when you need a selection; if you need all just skip
-        method_labels_set=select_methods_set,
+        method_labels_set=["FATHMM","MetaLR","MetaSVM","MutationAssessor","MutationTaster","PolyPhen","PROVEAN","SIFT"],
     output:
-        plot=missense_by_thresholds_plot,
+        plot=missense_by_thresholds_plot_figure5,
     script:
         viz_by_thresholds
 
@@ -738,9 +790,9 @@ rule REVEL_alone_and_in_combinations:
         point_alpha=1,
         text_size=18,
         xlab="",
-        xlab_angle=45,
-        xlab_vjust=1,
-        xlab_hjust=1,
+        xlab_angle=0,
+        xlab_vjust=0.5,
+        xlab_hjust=0.5,
         colors=colors,
         method_labels_set=[
             "REVEL",
@@ -768,8 +820,6 @@ rule viz_by_thresholds_heatmap:
         ylab="ClinGen filter",
         labels_order=heatmap_labels_order,
         legend_title="CAPS",
-        # NOTE: only use this when you need a selection; if you need all just skip
-        method_labels_set=select_methods_set,
     output:
         plot=missense_by_thresholds_heatmap_plot,
     script:

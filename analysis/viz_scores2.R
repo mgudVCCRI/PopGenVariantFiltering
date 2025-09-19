@@ -98,6 +98,11 @@ ggplot(scores) +
     }
   } +
   {
+    if (!is.null(snakemake@params[["xlim_breaks"]])) {
+      scale_x_discrete(limits = snakemake@params[["xlim_breaks"]])
+    }
+  } +
+  {
     if (!is.null(snakemake@params[["ylim_min"]]) &&
       !is.null(snakemake@params[["ylim_max"]])) {
       ylim(

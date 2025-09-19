@@ -31,7 +31,7 @@ get_CAPS <- function(dat, phat, confint_method) {
       caps_lconf = caps - 1.96 * caps_se,
       caps_uconf = caps + 1.96 * caps_se
     ) %>%
-    select(caps, caps_se, caps_uconf, caps_lconf)
+    select(caps, caps_se, caps_uconf, caps_lconf, variant_count)
 }
 
 # calculate the CI on CAPS using simulated

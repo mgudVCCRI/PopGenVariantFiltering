@@ -48,6 +48,7 @@ if (!is.null(snakemake@params[["prediction_labels"]]) || !is.null(snakemake@para
 #####################################################################
 
 pdf(snakemake@output[["plot"]])
+if (is.null(snakemake@params[["swap_axes"]])) {
 ggplot(scores) +
   aes(
     x = factor(!!sym(ifelse(!is.null(snakemake@params[["x_axis"]]), snakemake@params[["x_axis"]], "source"))), y = !!sym(snakemake@params[["score_name"]]),
@@ -110,4 +111,67 @@ ggplot(scores) +
     {
     if (!is.null(snakemake@params[["rotate"]]) && (snakemake@params[["rotate"]] == TRUE)) coord_flip()
   }
+} else {
+ggplot(scores) +
+  aes(
+    y = reorder(!!sym(ifelse(!is.null(snakemake@params[["color_var"]]), snakemake@params[["color_var"]], "method")),!!sym(snakemake@params[["score_name"]])), x = !!sym(snakemake@params[["score_name"]]),
+  ) +
+  ylab(snakemake@params[["xlab"]]) +
+  xlab(ifelse(snakemake@params[["score_name"]] %in% c("maps", "caps", "caps_pdd"), case_when(
+    (snakemake@params[["score_name"]] == "maps") ~ "MAPS",
+    (snakemake@params[["score_name"]] == "caps") ~ "CAPS",
+    (snakemake@params[["score_name"]] == "caps_pdd") ~ "CAPS-PDD"
+  ), stop("Score name error"))) +
+  geom_pointrange(
+    aes(
+      xmin = !!sym(snakemake@params[["lconf"]]),
+      xmax = !!sym(snakemake@params[["uconf"]]),
+      color= prediction
+      # shape = prediction
+    ),
+    linewidth = 1.8,
+    alpha = ifelse(is.null(snakemake@params[["point_alpha"]]), 1, snakemake@params[["point_alpha"]]),
+    size = ifelse(is.null(snakemake@params[["point_size"]]), 1.3, snakemake@params[["point_size"]]),
+    position = position_dodge(width = ifelse(is.null(snakemake@params[["dodge_width"]]), 0.65, snakemake@params[["dodge_width"]]))
+  ) +
+  {
+    if (!is.null(snakemake@params[["ylim_min"]]) &&
+      !is.null(snakemake@params[["ylim_max"]])) {
+      xlim(
+        snakemake@params[["ylim_min"]],
+        snakemake@params[["ylim_max"]]
+      )
+    }
+  } +
+  {
+    if (!is.null(snakemake@params[["sector_to_highlight"]])) {
+      annotate("rect", xmin = snakemake@params[["sector_to_highlight"]] - 0.5, xmax = snakemake@params[["sector_to_highlight"]] + 0.5, ymin = -Inf, ymax = Inf, fill = "lightblue", alpha = 0.4)
+    }
+  } +
+  theme_classic() +
+  theme(
+    aspect.ratio = ifelse(!is.null(snakemake@params[["aspect_ratio"]]), snakemake@params[["aspect_ratio"]], 1),
+    legend.position = ifelse(!is.null(snakemake@params[["legend_position"]]), snakemake@params[["legend_position"]], "bottom"),
+    axis.text.y = element_text(
+      vjust = snakemake@params[["xlab_vjust"]],
+      hjust = snakemake@params[["xlab_hjust"]],
+      angle = ifelse(is.null(snakemake@params[["xlab_angle"]]), 0, snakemake@params[["xlab_angle"]])
+    ),
+    text = element_text(size = ifelse(is.null(snakemake@params[["text_size"]]), 24, snakemake@params[["text_size"]])),
+    plot.margin = margin(0, 5.5, 0, 5.5)
+  ) +
+  scale_color_manual(snakemake@params[["color_legend_title"]],
+    values = snakemake@params[["colors"]]
+    ) +
+    #TODO: put back
+  # scale_shape_manual(snakemake@params[["shape_legend_title"]],
+  #   values = snakemake@params[["shapes"]]
+  # ) +
+  {
+    if (!is.null(snakemake@params[["gnomAD_missense_level"]])) geom_vline(aes(xintercept = snakemake@params[["gnomAD_missense_level"]]), linetype = "dashed")
+  } +
+    {
+    if (!is.null(snakemake@params[["rotate"]]) && (snakemake@params[["rotate"]] == TRUE)) coord_flip()
+  }
+}
 dev.off()

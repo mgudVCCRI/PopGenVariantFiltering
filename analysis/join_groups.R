@@ -1,7 +1,5 @@
 # This function joins groups of variants split into bins by creating
-# nested bins. Each bin is defined by two threshold (i.e. whether the
-# score is between two values), whereas nested bins can be interpreted
-# as top 5%, top 10%, top 50%, etc.
+# nested bins. Nested bins can be interpreted as top 100%, top 50%, etc.
 
 library(magrittr)
 library(dplyr)
@@ -18,8 +16,10 @@ groups <- groups %>%
   ) %>%
   ungroup()
 
-# All observed bins in their nesting order
-bins <- sort(unique(groups[[snakemake@params[["variable"]]]]), decreasing = ifelse(!is.null(snakemake@params[["desc"]]), snakemake@params[["desc"]], FALSE))
+# All bins, from 1st to the last observed. If starts from 0, increment
+# all bins (that is, if bins were calculated in Python).
+if (min(groups[[snakemake@params[["variable"]]]]) == 0) groups <- mutate(groups, across(snakemake@params[["variable"]], ~ . + 1))
+bins <- seq(1:max(groups[[snakemake@params[["variable"]]]]))
 
 df <- data.frame()
 for (i in length(bins):1) {
@@ -54,4 +54,5 @@ colnames(df) <- c(
   snakemake@params[["variable"]]
 )
 write.table(df, snakemake@output[["joined_groups"]],
-            row.names = FALSE, quote = FALSE, sep = "\t")
+  row.names = FALSE, quote = FALSE, sep = "\t"
+)
